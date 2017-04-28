@@ -1193,11 +1193,15 @@ message WindowDataParameter {
 message BinaryConvolutionParameter {
   optional bool use_alpha = 1 [default = false];
   optional bool use_binarization = 2 [default = true];
+  optional float pos_val = 3 [default = 1];
+  optional float neg_val = 4 [default = -1];
 }
 
 message BinaryInnerProductParameter {
   optional bool use_alpha = 1 [default = false];
   optional bool use_binarization = 2 [default = true];
+  optional float pos_val = 3 [default = 1];
+  optional float neg_val = 4 [default = -1];
 }
 
 message QuantParameter {

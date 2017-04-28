@@ -27,6 +27,8 @@ void BinaryConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bott
   BinaryConvolutionParameter binary_conv_param = this->layer_param_.binary_convolution_param();
   bool use_alpha = binary_conv_param.use_alpha();
   bool use_binarization = binary_conv_param.use_binarization();
+  const Dtype pos_val = binary_conv_param.pos_val();
+  const Dtype neg_val = binary_conv_param.neg_val();  
   // initialization for binary parameters
   const Dtype* weight = this->blobs_[0]->cpu_data();
   const int weight_dim = this->blobs_[0]->count() / this->blobs_[0]->num();
@@ -49,7 +51,7 @@ void BinaryConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bott
     }
     for (int i = 0; i < this->num_output_; i++) {
       for (int j = 0; j < weight_dim; j++) {
-        Dtype binary_code = (weight[i*weight_dim+j]>=0) ? 1:-1;
+        Dtype binary_code = (weight[i*weight_dim+j]>=0) ? pos_val:neg_val;
         binary_weights_.mutable_cpu_data()[i*weight_dim+j] = binary_code*alphas_.cpu_data()[i];
       }
     }

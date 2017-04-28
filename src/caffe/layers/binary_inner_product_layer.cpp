@@ -87,6 +87,8 @@ void BinaryInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
   BinaryInnerProductParameter binary_inner_product_param = this->layer_param_.binary_inner_product_param();
   bool use_alpha = binary_inner_product_param.use_alpha();
   bool use_binarization = binary_inner_product_param.use_binarization();
+  const Dtype pos_val = binary_inner_product_param.pos_val();
+  const Dtype neg_val = binary_inner_product_param.neg_val();
   // initialization for binary parameters
   const Dtype* weight = this->blobs_[0]->mutable_cpu_data();
   const int weight_dim = this->blobs_[0]->count() / this->blobs_[0]->num();
@@ -109,7 +111,7 @@ void BinaryInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
     }
     for (int i = 0; i < num_output; i++) {
       for (int j = 0; j < weight_dim; j++) {
-        Dtype binary_code = (weight[i*weight_dim+j]>=0) ? 1:-1;
+        Dtype binary_code = (weight[i*weight_dim+j]>=0) ? pos_val:neg_val;
         binary_weights_.mutable_cpu_data()[i*weight_dim+j] = binary_code*alphas_.cpu_data()[i];
       }
     }

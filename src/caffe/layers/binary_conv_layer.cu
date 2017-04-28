@@ -6,10 +6,10 @@ namespace caffe {
 
 template <typename Dtype>
 __global__ void BinWeightForward(const int n, const int weight_dim, const Dtype* weight, 
-          const Dtype* alpha, Dtype* binary_weight) {
+          const Dtype* alpha, Dtype* binary_weight, const Dtype pos_val, const Dtype neg_val) {
   CUDA_KERNEL_LOOP(index, n) {
     int i = index/weight_dim;
-    Dtype binary_code = (weight[index]>=0) ? 1:-1; 
+    Dtype binary_code = (weight[index]>=0) ? pos_val:neg_val; 
     binary_weight[index] = binary_code*alpha[i];
   }
 }
@@ -20,6 +20,8 @@ void BinaryConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bott
   BinaryConvolutionParameter binary_conv_param = this->layer_param_.binary_convolution_param();
   bool use_alpha = binary_conv_param.use_alpha();
   bool use_binarization = binary_conv_param.use_binarization();
+  const Dtype pos_val = binary_conv_param.pos_val();
+  const Dtype neg_val = binary_conv_param.neg_val();  
   // initialization for binary parameters
   const Dtype* weight = this->blobs_[0]->gpu_data();
   const int weight_dim = this->blobs_[0]->count() / this->blobs_[0]->num();
@@ -42,7 +44,7 @@ void BinaryConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bott
           alphas_.mutable_gpu_data());
     }
     BinWeightForward<Dtype><<<CAFFE_GET_BLOCKS(nthreads), CAFFE_CUDA_NUM_THREADS>>>(
-        nthreads, weight_dim, weight, alphas_.gpu_data(), binary_weights_.mutable_gpu_data());
+        nthreads, weight_dim, weight, alphas_.gpu_data(), binary_weights_.mutable_gpu_data(), pos_val, neg_val);
   }
 
   const Dtype* binary_weights = binary_weights_.gpu_data();
