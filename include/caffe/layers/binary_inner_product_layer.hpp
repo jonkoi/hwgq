@@ -73,7 +73,6 @@ class BinaryInnerProductLayer : public Layer<Dtype> {
   std::vector<std::uint8_t> gemmlowp_weights;
   std::vector<std::uint8_t> gemmlowp_acts;
   std::vector<std::int32_t> gemmlowp_res;
-  std::vector<float> gemmlowp_resf;
   gemmlowp::GemmContext gemm_context;
   bool weights_ready=false;
 };

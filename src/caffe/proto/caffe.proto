@@ -1195,6 +1195,22 @@ message BinaryConvolutionParameter {
   optional bool use_binarization = 2 [default = true];
   optional float pos_val = 3 [default = 1];
   optional float neg_val = 4 [default = -1];
+  // use gemmlowp for forward pass on the CPU
+  optional bool use_gemmlowp = 5 [default = false];
+  // value range used for gemmlowp quantization for inputs
+  // the defaults are based on 2-bit uniform HWGQ activations as input
+  optional float gemmlowp_imin = 6 [default = 0];
+  optional float gemmlowp_imax = 7 [default = 1.614];
+  // value range used for gemmlowp quantization for weights
+  // the defaults are based on 2-bit uniform HWGQ activations as input
+  optional float gemmlowp_wmin = 8 [default = -1];
+  optional float gemmlowp_wmax = 9 [default = 1];
+  // value range used for gemmlowp quantization for results
+  // the defaults are set somewhat ad-hoc here, since the range depends on
+  // the input&weight distribution and ranges
+  optional float gemmlowp_rmin = 10 [default = -10];
+  optional float gemmlowp_rmax = 11 [default = 10];
+  
 }
 
 message BinaryInnerProductParameter {
@@ -1202,6 +1218,21 @@ message BinaryInnerProductParameter {
   optional bool use_binarization = 2 [default = true];
   optional float pos_val = 3 [default = 1];
   optional float neg_val = 4 [default = -1];
+  // use gemmlowp for forward pass on the CPU
+  optional bool use_gemmlowp = 5 [default = false];
+  // value range used for gemmlowp quantization for inputs
+  // the defaults are based on 2-bit uniform HWGQ activations as input
+  optional float gemmlowp_imin = 6 [default = 0];
+  optional float gemmlowp_imax = 7 [default = 1.614];
+  // value range used for gemmlowp quantization for weights
+  // the defaults are based on 2-bit uniform HWGQ activations as input
+  optional float gemmlowp_wmin = 8 [default = -1];
+  optional float gemmlowp_wmax = 9 [default = 1];
+  // value range used for gemmlowp quantization for results
+  // the defaults are set somewhat ad-hoc here, since the range depends on
+  // the input&weight distribution and ranges
+  optional float gemmlowp_rmin = 10 [default = -10];
+  optional float gemmlowp_rmax = 11 [default = 10];
 }
 
 message QuantParameter {

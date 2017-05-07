@@ -162,26 +162,31 @@ void BinaryInnerProductLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bott
   // length K_ vector. For example, if bottom[0]'s shape is (N, C, H, W),
   // and axis == 1, N inner products with dimension CHW are performed.
   K_ = bottom[0]->count(axis);
-  // gemmlowp initialization
-  // TODO the min-max values are hardcoded for binary weights and 2-bit uniform HWGQ
-  lhs_qparams = ChooseQuantizationParams(-1, +1);
-  rhs_qparams = ChooseQuantizationParams(0, 1.614);
-  result_qparams = ChooseQuantizationParams(/*-1.614*(K_/2), 1.614*(K_/2)*/-10,10);
-  lhs_offset = -lhs_qparams.zero_point;
-  rhs_offset = -rhs_qparams.zero_point;
-  result_offset = result_qparams.zero_point;
+  BinaryInnerProductParameter bipp = this->layer_param_.binary_inner_product_param();
+  // gemmlowp initialization, if desired
+  if(bipp.use_gemmlowp()) {
+    float wmin = bipp.gemmlowp_wmin(), wmax = bipp.gemmlowp_wmax();
+    float imin = bipp.gemmlowp_imin(), imax = bipp.gemmlowp_imax();
+    float rmin = bipp.gemmlowp_rmin(), rmax = bipp.gemmlowp_rmax();
+    lhs_qparams = ChooseQuantizationParams(wmin, wmax);
+    rhs_qparams = ChooseQuantizationParams(imin, imax);
+    result_qparams = ChooseQuantizationParams(rmin, rmax);
+    lhs_offset = -lhs_qparams.zero_point;
+    rhs_offset = -rhs_qparams.zero_point;
+    result_offset = result_qparams.zero_point;
 
-  real_multiplier =
-      lhs_qparams.scale * rhs_qparams.scale / result_qparams.scale;
-  QuantizeMultiplierSmallerThanOne(real_multiplier, &quantized_multiplier,
-                                   &right_shift);
+    real_multiplier =
+    lhs_qparams.scale * rhs_qparams.scale / result_qparams.scale;
+    QuantizeMultiplierSmallerThanOne(real_multiplier, &quantized_multiplier,
+                                 &right_shift);
 
-  quantize_down_stage.result_offset_after_shift = result_offset;
-  quantize_down_stage.result_fixedpoint_multiplier = quantized_multiplier;
-  quantize_down_stage.result_shift = right_shift;
-  
-  output_pipeline =
-      std::make_tuple(quantize_down_stage/*, saturating_cast_stage*/);
+    quantize_down_stage.result_offset_after_shift = result_offset;
+    quantize_down_stage.result_fixedpoint_multiplier = quantized_multiplier;
+    quantize_down_stage.result_shift = right_shift;
+
+    output_pipeline =
+    std::make_tuple(quantize_down_stage);
+  }
   
   // Check if we need to set up the weights
   if (this->blobs_.size() > 0) {
@@ -216,7 +221,9 @@ void BinaryInnerProductLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bott
     }
   }  // parameter initialization
   this->param_propagate_down_.resize(this->blobs_.size(), true);
-  gemmlowp_weights.resize(N_*K_);
+  if(bipp.use_gemmlowp()) {
+    gemmlowp_weights.resize(N_*K_);
+  }
 }
 
 template <typename Dtype>
@@ -243,9 +250,12 @@ void BinaryInnerProductLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
     bias_multiplier_.Reshape(bias_shape);
     caffe_set(M_, Dtype(1), bias_multiplier_.mutable_cpu_data());
   }
-  gemmlowp_res.resize(M_*N_);
-  gemmlowp_resf.resize(M_*N_);
-  gemmlowp_acts.resize(K_*M_);
+  BinaryInnerProductParameter bipp = this->layer_param_.binary_inner_product_param();
+  // gemmlowp initialization, if desired
+  if(bipp.use_gemmlowp()) {
+    gemmlowp_res.resize(M_*N_);
+    gemmlowp_acts.resize(K_*M_);
+  }
 }
 
 template <typename Dtype>
@@ -292,42 +302,30 @@ void BinaryInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
       }
     }
     
-    // gemmlowp
-    Quantize(lhs_qparams, binary_weights, &gemmlowp_weights);
+    if(binary_inner_product_param.use_gemmlowp()) {
+      Quantize(lhs_qparams, binary_weights, &gemmlowp_weights);
+    }
   }
   
-    // =========================================================
-  // gemmlowp
+  if(binary_inner_product_param.use_gemmlowp()) {
+    Quantize(rhs_qparams, bottom_data, &gemmlowp_acts);
 
-  
-  // quantize activations
-  Quantize(rhs_qparams, bottom_data, &gemmlowp_acts);
-  
-  const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::RowMajor> lhs(gemmlowp_weights.data(), N_, K_);
-  const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::ColMajor> rhs(gemmlowp_acts.data(), K_, M_);
-  gemmlowp::MatrixMap<std::int32_t, gemmlowp::MapOrder::ColMajor> resmap(gemmlowp_res.data(), N_, M_);
-  
-  gemmlowp::GemmWithOutputPipeline<std::uint8_t, std::int32_t,
-                                   gemmlowp::DefaultL8R8BitDepthParams>(
-      &gemm_context, lhs, rhs,
-      &resmap, lhs_offset, rhs_offset, output_pipeline);
+    const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::RowMajor> lhs(gemmlowp_weights.data(), N_, K_);
+    const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::ColMajor> rhs(gemmlowp_acts.data(), K_, M_);
+    gemmlowp::MatrixMap<std::int32_t, gemmlowp::MapOrder::ColMajor> resmap(gemmlowp_res.data(), N_, M_);
+
+    gemmlowp::GemmWithOutputPipeline<std::uint8_t, std::int32_t,
+                           gemmlowp::DefaultL8R8BitDepthParams>(
+    &gemm_context, lhs, rhs,
+    &resmap, lhs_offset, rhs_offset, output_pipeline);
 
 
-  Dequantize(result_qparams, gemmlowp_res, top_data);
-  //Dequantize(result_qparams, gemmlowp_res, &gemmlowp_resf[0]);
-  // =========================================================
-    /*for(int J = 0; J < K_; J++) {
-    std::cout << J << " bottom_data: " << bottom_data[J] << " got q " << (int)gemmlowp_acts[J] << std::endl;
-  }*/
-  
-  
-  /*caffe_cpu_gemm<Dtype>(CblasNoTrans, transpose_ ? CblasNoTrans : CblasTrans,
+    Dequantize(result_qparams, gemmlowp_res, top_data);
+  } else {
+    caffe_cpu_gemm<Dtype>(CblasNoTrans, transpose_ ? CblasNoTrans : CblasTrans,
       M_, N_, K_, (Dtype)1.,
-      bottom_data, binary_weights, (Dtype)0., top_data);*/
-  /*if(N_==10)
-  for(int J = 0; J < N_ * M_; J++) {
-    std::cout << J << " golden: " << top_data[J] << " got q " << (int)gemmlowp_res[J] << " uq " << gemmlowp_resf[J] << std::endl;
-  }*/ 
+      bottom_data, binary_weights, (Dtype)0., top_data);
+  }
   if (bias_term_) {
     caffe_cpu_gemm<Dtype>(CblasNoTrans, CblasNoTrans, M_, N_, 1, (Dtype)1.,
         bias_multiplier_.cpu_data(),
@@ -389,3 +387,4 @@ INSTANTIATE_CLASS(BinaryInnerProductLayer);
 REGISTER_LAYER_CLASS(BinaryInnerProduct);
 
 }  // namespace caffe
+
