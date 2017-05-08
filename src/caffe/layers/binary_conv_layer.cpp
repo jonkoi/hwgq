@@ -1,8 +1,39 @@
 #include <vector>
-
+#include <iostream>
 #include "caffe/layers/binary_conv_layer.hpp"
 
 namespace caffe {
+
+template<typename Dtype>
+BinaryConvolutionLayer<Dtype>::BinaryConvolutionLayer(const LayerParameter& param)
+      : BaseConvolutionLayer<Dtype>(param) {
+  weights_ready=false;
+  BinaryConvolutionParameter bcp = this->layer_param_.binary_convolution_param();
+  // gemmlowp initialization, if desired
+  if(bcp.use_gemmlowp()) {
+    float wmin = bcp.gemmlowp_wmin(), wmax = bcp.gemmlowp_wmax();
+    float imin = bcp.gemmlowp_imin(), imax = bcp.gemmlowp_imax();
+    float rmin = bcp.gemmlowp_rmin(), rmax = bcp.gemmlowp_rmax();
+    lhs_qparams = gemmlowp::ChooseQuantizationParams(wmin, wmax);
+    rhs_qparams = gemmlowp::ChooseQuantizationParams(imin, imax);
+    result_qparams = gemmlowp::ChooseQuantizationParams(rmin, rmax);
+    lhs_offset = -lhs_qparams.zero_point;
+    rhs_offset = -rhs_qparams.zero_point;
+    result_offset = result_qparams.zero_point;
+
+    real_multiplier =
+    lhs_qparams.scale * rhs_qparams.scale / result_qparams.scale;
+    gemmlowp::QuantizeMultiplierSmallerThanOne(real_multiplier, &quantized_multiplier,
+                                 &right_shift);
+
+    quantize_down_stage.result_offset_after_shift = result_offset;
+    quantize_down_stage.result_fixedpoint_multiplier = quantized_multiplier;
+    quantize_down_stage.result_shift = right_shift;
+
+    output_pipeline =
+    std::make_tuple(quantize_down_stage);
+  }
+}
 
 template <typename Dtype>
 void BinaryConvolutionLayer<Dtype>::compute_output_shape() {
@@ -28,35 +59,45 @@ void BinaryConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bott
   bool use_alpha = binary_conv_param.use_alpha();
   bool use_binarization = binary_conv_param.use_binarization();
   const Dtype pos_val = binary_conv_param.pos_val();
-  const Dtype neg_val = binary_conv_param.neg_val();  
+  const Dtype neg_val = binary_conv_param.neg_val();
   // initialization for binary parameters
   const Dtype* weight = this->blobs_[0]->cpu_data();
   const int weight_dim = this->blobs_[0]->count() / this->blobs_[0]->num();
   weight_sum_multiplier_.Reshape(weight_dim,1,1,1);
-  caffe_set(weight_sum_multiplier_.count(),Dtype(1),weight_sum_multiplier_.mutable_cpu_data());  
   binary_weights_.ReshapeLike(*this->blobs_[0]);
   alphas_.Reshape(this->num_output_,1,1,1);
-  caffe_set(this->num_output_,Dtype(1),alphas_.mutable_cpu_data()); 
-  caffe_copy(binary_weights_.count(),weight,binary_weights_.mutable_cpu_data());
-  
-  // binarize the weights
-  if (use_binarization) {
-    // compute alpha if needed
-    if (use_alpha) {
-      caffe_abs(this->num_output_*weight_dim,weight,binary_weights_.mutable_cpu_diff());
-      const Dtype* abs_weight = binary_weights_.cpu_diff();
-      caffe_cpu_gemv<Dtype>(CblasNoTrans, this->num_output_, weight_dim,
+  if(!weights_ready) {
+    weights_ready = true;
+    caffe_set(weight_sum_multiplier_.count(),Dtype(1),weight_sum_multiplier_.mutable_cpu_data());
+    caffe_set(this->num_output_,Dtype(1),alphas_.mutable_cpu_data());
+    caffe_copy(binary_weights_.count(),weight,binary_weights_.mutable_cpu_data());
+    // binarize the weights
+    if (use_binarization) {
+      // compute alpha if needed
+      if (use_alpha) {
+        caffe_abs(this->num_output_*weight_dim,weight,binary_weights_.mutable_cpu_diff());
+        const Dtype* abs_weight = binary_weights_.cpu_diff();
+        caffe_cpu_gemv<Dtype>(CblasNoTrans, this->num_output_, weight_dim,
           1. / weight_dim, abs_weight, weight_sum_multiplier_.cpu_data(), 0.,
           alphas_.mutable_cpu_data());
-    }
-    for (int i = 0; i < this->num_output_; i++) {
-      for (int j = 0; j < weight_dim; j++) {
-        Dtype binary_code = (weight[i*weight_dim+j]>=0) ? pos_val:neg_val;
-        binary_weights_.mutable_cpu_data()[i*weight_dim+j] = binary_code*alphas_.cpu_data()[i];
+        }
+        for (int i = 0; i < this->num_output_; i++) {
+          for (int j = 0; j < weight_dim; j++) {
+            Dtype binary_code = (weight[i*weight_dim+j]>=0) ? pos_val:neg_val;
+            binary_weights_.mutable_cpu_data()[i*weight_dim+j] = binary_code*alphas_.cpu_data()[i];
+          }
+        }
       }
-    }
+      // gemmlowp
+      const Dtype* binary_weights = binary_weights_.cpu_data();
+      if(binary_conv_param.use_gemmlowp()) {
+        gemmlowp_weights.resize(this->conv_out_channels_ * this->kernel_dim_);
+        gemmlowp_acts.resize(this->kernel_dim_ * this->conv_out_spatial_dim_);
+        gemmlowp_res.resize(this->conv_out_channels_ * this->conv_out_spatial_dim_);
+        gemmlowp::Quantize(lhs_qparams, binary_weights, &gemmlowp_weights);
+      }
   }
-    
+
   const Dtype* binary_weights = binary_weights_.cpu_data();
   for (int i = 0; i < bottom.size(); ++i) {
     const Dtype* bottom_data = bottom[i]->cpu_data();
@@ -73,8 +114,45 @@ void BinaryConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bott
 }
 
 template <typename Dtype>
+void BinaryConvolutionLayer<Dtype>::forward_cpu_gemm(const Dtype* input, const Dtype* weights,
+    Dtype* output, bool skip_im2col) {
+  BinaryConvolutionParameter binary_conv_param = this->layer_param_.binary_convolution_param();
+  const Dtype* col_buff = input;
+  if (!this->is_1x1_) {
+    if (!skip_im2col) {
+      this->conv_im2col_cpu(input, this->col_buffer_.mutable_cpu_data());
+    }
+    col_buff = this->col_buffer_.cpu_data();
+  }
+  /*TODO support groups*/
+  if(this->group_ > 1 && binary_conv_param.use_gemmlowp())
+    throw "Grouped convs not yet supported with gemmlowp";
+  for (int g = 0; g < this->group_; ++g) {
+    if(binary_conv_param.use_gemmlowp()) {
+      gemmlowp::Quantize(rhs_qparams, col_buff, &gemmlowp_acts);
+      const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::RowMajor> lhs(gemmlowp_weights.data(), this->conv_out_channels_, this->kernel_dim_);
+      const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::ColMajor> rhs(gemmlowp_acts.data(), this->kernel_dim_, this->conv_out_spatial_dim_);
+      gemmlowp::MatrixMap<std::int32_t, gemmlowp::MapOrder::ColMajor> resmap(gemmlowp_res.data(), this->conv_out_channels_, this->conv_out_spatial_dim_);
+
+      gemmlowp::GemmWithOutputPipeline<std::uint8_t, std::int32_t,
+      gemmlowp::DefaultL8R8BitDepthParams>(
+        &gemm_context, lhs, rhs,
+        &resmap, lhs_offset, rhs_offset, output_pipeline);
+
+      gemmlowp::Dequantize(result_qparams, gemmlowp_res, output);
+    } else {
+      caffe_cpu_gemm<Dtype>(CblasNoTrans, CblasNoTrans, this->conv_out_channels_ /
+          this->group_, this->conv_out_spatial_dim_, this->kernel_dim_,
+          (Dtype)1., weights + this->weight_offset_ * g, col_buff + this->col_offset_ * g,
+          (Dtype)0., output + this->output_offset_ * g);
+    }
+  }
+}
+
+template <typename Dtype>
 void BinaryConvolutionLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
       const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom) {
+  weights_ready = false;
   const Dtype* binary_weights = binary_weights_.cpu_data();
   Dtype* weight_diff = this->blobs_[0]->mutable_cpu_diff();
   for (int i = 0; i < top.size(); ++i) {
