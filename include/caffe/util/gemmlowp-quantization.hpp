@@ -34,6 +34,19 @@ void Quantize(const QuantizationParams& qparams, const Dtype* src,
 }
 
 template <typename Dtype>
+void QuantizeAndTranspose(const QuantizationParams& qparams, const Dtype* src,
+              std::vector<std::uint8_t>* dst, const std::size_t inner, const std::size_t outer) {
+  for(std::size_t o = 0; o < outer; o++) {
+    for(std::size_t i = 0; i < inner; i++) {
+      const Dtype real_val = src[o * inner + i];
+      const Dtype transformed_val = qparams.zero_point + real_val / qparams.scale;
+      const Dtype clamped_val = std::max((Dtype)0, std::min((Dtype)255, transformed_val));
+      (*dst)[i * outer + o] = static_cast<std::uint8_t>(std::round(clamped_val));
+    }
+  }
+}
+
+template <typename Dtype>
 void Dequantize(const QuantizationParams& qparams,
                 const std::vector<std::int32_t>& src, Dtype* dst) {
   for (std::size_t i = 0; i < src.size(); i++) {

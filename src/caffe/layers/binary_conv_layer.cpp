@@ -129,15 +129,19 @@ void BinaryConvolutionLayer<Dtype>::forward_cpu_gemm(const Dtype* input, const D
     throw "Grouped convs not yet supported with gemmlowp";
   for (int g = 0; g < this->group_; ++g) {
     if(binary_conv_param.use_gemmlowp()) {
-      gemmlowp::Quantize(rhs_qparams, col_buff, &gemmlowp_acts);
-      const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::RowMajor> lhs(gemmlowp_weights.data(), this->conv_out_channels_, this->kernel_dim_);
-      const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::RowMajor> rhs(gemmlowp_acts.data(), this->kernel_dim_, this->conv_out_spatial_dim_);
-      gemmlowp::MatrixMap<std::int32_t, gemmlowp::MapOrder::RowMajor> resmap(gemmlowp_res.data(), this->conv_out_channels_, this->conv_out_spatial_dim_);
+      // gemmlowp works best with rm-cm-cm map orders, but im2col gives a
+      // row-major rhs matrix. thus, we transpose the im2col result during the
+      // quantization and switch the order of the lhs and rhs matrices.
+      // TODO a better alternative would be to use im2row instead of im2col
+      gemmlowp::QuantizeAndTranspose(rhs_qparams, col_buff, &gemmlowp_acts, this->conv_out_spatial_dim_, this->kernel_dim_);
+      const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::RowMajor> rhs(gemmlowp_acts.data(), this->conv_out_spatial_dim_, this->kernel_dim_);
+      const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::ColMajor> lhs(gemmlowp_weights.data(), this->kernel_dim_, this->conv_out_channels_);
+      gemmlowp::MatrixMap<std::int32_t, gemmlowp::MapOrder::ColMajor> resmap(gemmlowp_res.data(), this->conv_out_spatial_dim_, this->conv_out_channels_);
 
       gemmlowp::GemmWithOutputPipeline<std::uint8_t, std::int32_t,
       gemmlowp::DefaultL8R8BitDepthParams>(
-        &gemm_context, lhs, rhs,
-        &resmap, lhs_offset, rhs_offset, output_pipeline);
+        &gemm_context, rhs, lhs,
+        &resmap, rhs_offset, lhs_offset, output_pipeline);
 
       gemmlowp::Dequantize(result_qparams, gemmlowp_res, output);
     } else {
