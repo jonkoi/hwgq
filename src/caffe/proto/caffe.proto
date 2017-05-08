@@ -306,7 +306,7 @@ message ParamSpec {
 // NOTE
 // Update the next available ID when you add a new LayerParameter field.
 //
-// LayerParameter next available layer-specific ID: 150 (last added: quant_param)
+// LayerParameter next available layer-specific ID: 151 (last added: integer_inner_product_param)
 message LayerParameter {
   optional string name = 1; // the layer name
   optional string type = 2; // the layer type
@@ -406,6 +406,7 @@ message LayerParameter {
   optional BinaryConvolutionParameter binary_convolution_param = 147;
   optional BinaryInnerProductParameter binary_inner_product_param = 148;
   optional QuantParameter quant_param = 149;
+  optional  integer_inner_product_param = 150;
 }
 
 // Message that stores parameters used to apply transformation
@@ -1210,7 +1211,7 @@ message BinaryConvolutionParameter {
   // the input&weight distribution and ranges
   optional float gemmlowp_rmin = 10 [default = -10];
   optional float gemmlowp_rmax = 11 [default = 10];
-  
+
 }
 
 message BinaryInnerProductParameter {
@@ -1242,6 +1243,19 @@ message QuantParameter {
   optional float negative_slope = 4 [default = 0];
   repeated float thrs = 5;
   repeated float centers = 6;
+}
+
+message IntegerInnerProductParameter {
+  optional uint32 num_output = 1; // The number of outputs for the layer
+  // The first axis to be lumped into a single inner product computation;
+  // all preceding axes are retained in the output.
+  // May be negative to index from the end (e.g., -1 for the last axis).
+  optional int32 axis = 2 [default = 1];
+  optional uint32 wbits = 3 [default = 2];
+  optional uint32 ibits = 4 [default = 2];
+  optional bool wsigned = 5 [default = true];
+  optional bool isigned = 6 [default = false];
+  optional string engine = 7 [default = "bitserial"];
 }
 
 message SPPParameter {
