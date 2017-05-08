@@ -48,43 +48,6 @@ QuantizationParams ChooseQuantizationParams(float min, float max) {
   return result;
 }
 
-
-void Quantize(const QuantizationParams& qparams, const float* src,
-              std::vector<std::uint8_t>* dst) {
-  for (std::size_t i = 0; i < dst->size(); i++) {
-    const float real_val = src[i];
-    const float transformed_val = qparams.zero_point + real_val / qparams.scale;
-    const float clamped_val = std::max(0.f, std::min(255.f, transformed_val));
-    (*dst)[i] = static_cast<std::uint8_t>(std::round(clamped_val));
-  }
-}
-
-void Quantize(const QuantizationParams& qparams, const double* src,
-              std::vector<std::uint8_t>* dst) {
-  for (std::size_t i = 0; i < dst->size(); i++) {
-    const double real_val = src[i];
-    const double transformed_val = qparams.zero_point + real_val / qparams.scale;
-    const double clamped_val = std::max(0., std::min(255., transformed_val));
-    (*dst)[i] = static_cast<std::uint8_t>(std::round(clamped_val));
-  }
-}
-
-void Dequantize(const QuantizationParams& qparams,
-                const std::vector<std::int32_t>& src, float* dst) {
-  for (std::size_t i = 0; i < src.size(); i++) {
-    const std::int32_t quantized_val = src[i];
-    dst[i] = qparams.scale * (quantized_val - qparams.zero_point);
-  }
-}
-
-void Dequantize(const QuantizationParams& qparams,
-                const std::vector<std::int32_t>& src, double* dst) {
-  for (std::size_t i = 0; i < src.size(); i++) {
-    const std::int32_t quantized_val = src[i];
-    dst[i] = qparams.scale * (quantized_val - qparams.zero_point);
-  }
-}
-
 // Given a real_multiplier in the interval (0, 1),
 // produces a pair (quantized_multiplier, right_shift) where
 // quantized_multiplier is an int32 representing a fixed-point value

@@ -22,19 +22,25 @@ struct QuantizationParams {
 // reasonable quantization parameters to use for this array.
 QuantizationParams ChooseQuantizationParams(float min, float max);
 
-void Quantize(const QuantizationParams& qparams, const float* src,
-              std::vector<std::uint8_t>* dst);
+template <typename Dtype>
+void Quantize(const QuantizationParams& qparams, const Dtype* src,
+              std::vector<std::uint8_t>* dst) {
+  for (std::size_t i = 0; i < dst->size(); i++) {
+    const Dtype real_val = src[i];
+    const Dtype transformed_val = qparams.zero_point + real_val / qparams.scale;
+    const Dtype clamped_val = std::max((Dtype)0, std::min((Dtype)255, transformed_val));
+    (*dst)[i] = static_cast<std::uint8_t>(std::round(clamped_val));
+  }
+}
 
-void Quantize(const QuantizationParams& qparams, const double* src,
-              std::vector<std::uint8_t>* dst);
-
+template <typename Dtype>
 void Dequantize(const QuantizationParams& qparams,
-              const std::vector<std::int32_t>& src, float* dst);
-
-
-void Dequantize(const QuantizationParams& qparams,
-              const std::vector<std::int32_t>& src, double* dst);
-
+                const std::vector<std::int32_t>& src, Dtype* dst) {
+  for (std::size_t i = 0; i < src.size(); i++) {
+    const std::int32_t quantized_val = src[i];
+    dst[i] = qparams.scale * (quantized_val - qparams.zero_point);
+  }
+}
 
 void QuantizeMultiplierSmallerThanOne(float real_multiplier,
                                     std::int32_t* quantized_multiplier,
