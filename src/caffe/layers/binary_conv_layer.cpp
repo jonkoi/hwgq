@@ -131,8 +131,8 @@ void BinaryConvolutionLayer<Dtype>::forward_cpu_gemm(const Dtype* input, const D
     if(binary_conv_param.use_gemmlowp()) {
       gemmlowp::Quantize(rhs_qparams, col_buff, &gemmlowp_acts);
       const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::RowMajor> lhs(gemmlowp_weights.data(), this->conv_out_channels_, this->kernel_dim_);
-      const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::ColMajor> rhs(gemmlowp_acts.data(), this->kernel_dim_, this->conv_out_spatial_dim_);
-      gemmlowp::MatrixMap<std::int32_t, gemmlowp::MapOrder::ColMajor> resmap(gemmlowp_res.data(), this->conv_out_channels_, this->conv_out_spatial_dim_);
+      const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::RowMajor> rhs(gemmlowp_acts.data(), this->kernel_dim_, this->conv_out_spatial_dim_);
+      gemmlowp::MatrixMap<std::int32_t, gemmlowp::MapOrder::RowMajor> resmap(gemmlowp_res.data(), this->conv_out_channels_, this->conv_out_spatial_dim_);
 
       gemmlowp::GemmWithOutputPipeline<std::uint8_t, std::int32_t,
       gemmlowp::DefaultL8R8BitDepthParams>(
