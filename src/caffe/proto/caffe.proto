@@ -306,7 +306,7 @@ message ParamSpec {
 // NOTE
 // Update the next available ID when you add a new LayerParameter field.
 //
-// LayerParameter next available layer-specific ID: 151 (last added: integer_inner_product_param)
+// LayerParameter next available layer-specific ID: 152 (last added: multi_threshold_param)
 message LayerParameter {
   optional string name = 1; // the layer name
   optional string type = 2; // the layer type
@@ -407,6 +407,7 @@ message LayerParameter {
   optional BinaryInnerProductParameter binary_inner_product_param = 148;
   optional QuantParameter quant_param = 149;
   optional IntegerInnerProductParameter integer_inner_product_param = 150;
+  optional MultiThresholdParameter multi_threshold_param = 151;
 }
 
 // Message that stores parameters used to apply transformation
@@ -1256,6 +1257,12 @@ message IntegerInnerProductParameter {
   optional bool wsigned = 5 [default = true];
   optional bool isigned = 6 [default = false];
   optional string engine = 7 [default = "bitserial"];
+}
+
+message MultiThresholdParameter {
+  optional uint32 num_thres = 1;
+  optional uint32 num_channels = 2;
+  optional int32 channel_axis = 3 [default = 1];
 }
 
 message SPPParameter {
