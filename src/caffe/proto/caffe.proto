@@ -406,7 +406,7 @@ message LayerParameter {
   optional BinaryConvolutionParameter binary_convolution_param = 147;
   optional BinaryInnerProductParameter binary_inner_product_param = 148;
   optional QuantParameter quant_param = 149;
-  optional  integer_inner_product_param = 150;
+  optional IntegerInnerProductParameter integer_inner_product_param = 150;
 }
 
 // Message that stores parameters used to apply transformation
