@@ -120,20 +120,23 @@ void BinaryConvolutionLayer<Dtype>::forward_cpu_gemm(const Dtype* input, const D
   const Dtype* col_buff = input;
   if (!this->is_1x1_) {
     if (!skip_im2col) {
-      this->conv_im2col_cpu(input, this->col_buffer_.mutable_cpu_data());
+      if(binary_conv_param.use_gemmlowp()) {
+        this->conv_im2row_cpu(input, this->col_buffer_.mutable_cpu_data());
+      } else {
+        this->conv_im2col_cpu(input, this->col_buffer_.mutable_cpu_data());
+      }
     }
     col_buff = this->col_buffer_.cpu_data();
   }
-  /*TODO support groups*/
+  /*TODO support groups for gemmlowp*/
   if(this->group_ > 1 && binary_conv_param.use_gemmlowp())
     throw "Grouped convs not yet supported with gemmlowp";
+  /*TODO support 1x1 convs for gemmlowp*/
+  if(this->is_1x1_ && binary_conv_param.use_gemmlowp())
+    throw "1x1 convs not yet supported with gemmlowp";
   for (int g = 0; g < this->group_; ++g) {
     if(binary_conv_param.use_gemmlowp()) {
-      // gemmlowp works best with rm-cm-cm map orders, but im2col gives a
-      // row-major rhs matrix. thus, we transpose the im2col result during the
-      // quantization and switch the order of the lhs and rhs matrices.
-      // TODO a better alternative would be to use im2row instead of im2col
-      gemmlowp::QuantizeAndTranspose(rhs_qparams, col_buff, &gemmlowp_acts, this->conv_out_spatial_dim_, this->kernel_dim_);
+      gemmlowp::Quantize(rhs_qparams, col_buff, &gemmlowp_acts);
       const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::RowMajor> rhs(gemmlowp_acts.data(), this->conv_out_spatial_dim_, this->kernel_dim_);
       const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::ColMajor> lhs(gemmlowp_weights.data(), this->kernel_dim_, this->conv_out_channels_);
       gemmlowp::MatrixMap<std::int32_t, gemmlowp::MapOrder::ColMajor> resmap(gemmlowp_res.data(), this->conv_out_spatial_dim_, this->conv_out_channels_);
