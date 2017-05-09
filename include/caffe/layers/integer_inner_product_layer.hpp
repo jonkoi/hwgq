@@ -34,8 +34,8 @@ class IntegerInnerProductLayer : public Layer<Dtype> {
   int m_inputs;
   int m_depth;
 
-  BitSerialMatrix m_weights_;
-  BitSerialMatrix m_acts_;
+  BitSerialMatrix m_weights;
+  BitSerialMatrix m_acts;
   bool m_weights_ready;
 
 };

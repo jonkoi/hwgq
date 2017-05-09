@@ -64,12 +64,27 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
   const bool wsigned = iipp.wsigned();
   const bool isigned = iipp.isigned();
   if(!m_weights_ready) {
-    // TODO first usage, set up the bit serial matrix
+    // first usage, set up the bit serial matrix
+    const Dtype* weight_buf = this->blobs_[0]->cpu_data();
+    m_weights = toBitSerialMatrix(weight_buf, m_outputs, m_inputs, wbits);
+    m_weights_ready = true;
   }
+  const Dtype* bottom_data = bottom[0]->cpu_data();
+  Dtype* top_data = top[0]->mutable_cpu_data();
 
-  // TODO turn input into bit serial form
-  // TODO matrix matrix product
-  // TODO cast back to float -- or templatize accumulator type?
+  // turn input into bit serial form
+  // note that this is treated in transposed form
+  m_acts = toBitSerialMatrix(bottom_data, m_depth, m_inputs, ibits);
+  // matrix matrix product
+  AccumulateMatrix res = bitSerialMatrixMatrix(m_weights, m_acts, wsigned, isigned);
+
+  // cast back to float -- or templatize accumulator type?
+  // note that result is produced in transposed form
+  for(size_t c = 0; c < m_depth; c++) {
+    for(size_t r = 0; r < m_outputs; r++) {
+      top_data[c * m_outputs + r] = (Dtype) res[c][r];
+    }
+  }
 }
 
 template <typename Dtype>
