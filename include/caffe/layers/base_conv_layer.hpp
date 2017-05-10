@@ -7,7 +7,6 @@
 #include "caffe/layer.hpp"
 #include "caffe/proto/caffe.pb.h"
 #include "caffe/util/im2col.hpp"
-#include "caffe/util/im2row.hpp"
 
 namespace caffe {
 
@@ -96,18 +95,6 @@ class BaseConvolutionLayer : public Layer<Dtype> {
 
 protected:
   // wrap im2col/col2im so we don't have to remember the (long) argument lists
-  inline void conv_im2row_cpu(const Dtype* data, Dtype* col_buff) {
-    if (!force_nd_im2col_ && num_spatial_axes_ == 2) {
-      im2row_cpu(data, conv_in_channels_,
-          conv_input_shape_.cpu_data()[1], conv_input_shape_.cpu_data()[2],
-          kernel_shape_.cpu_data()[0], kernel_shape_.cpu_data()[1],
-          pad_.cpu_data()[0], pad_.cpu_data()[1],
-          stride_.cpu_data()[0], stride_.cpu_data()[1],
-          dilation_.cpu_data()[0], dilation_.cpu_data()[1], col_buff);
-    } else {
-      throw "im2row_nd_cpu not implemented";
-    }
-  }
   inline void conv_im2col_cpu(const Dtype* data, Dtype* col_buff) {
     if (!force_nd_im2col_ && num_spatial_axes_ == 2) {
       im2col_cpu(data, conv_in_channels_,
