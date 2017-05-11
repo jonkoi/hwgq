@@ -80,7 +80,7 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
   for(int d = 0; d < m_depth; d++) {
     // TODO cater specifically for 1x1 case
     /// call im2col
-    const Dtype * in_buff = bottom[0]->cpu_data() + m_indim * m_indim * d;
+    const Dtype * in_buff = bottom[0]->cpu_data() + m_ifm * m_indim * m_indim * d;
     Dtype * col_buff = col_buffer_.mutable_cpu_data();
     im2col_cpu(in_buff, m_ifm, m_indim, m_indim,
         m_k, m_k, m_pad, m_pad, m_stride, m_stride, 1, 1, col_buff);
@@ -89,7 +89,7 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
     // matrix matrix product
     AccumulateMatrix res = bitSerialMatrixMatrix(m_acts, m_weights, isigned, wsigned);
     // cast back to float -- or templatize accumulator type?
-    Dtype* top_data = top[0]->mutable_cpu_data() + m_outdim * m_outdim * d;
+    Dtype* top_data = top[0]->mutable_cpu_data() + m_ofm * m_outdim * m_outdim * d;
     for(size_t c = 0; c < m_ofm; c++) {
       for(size_t r = 0; r < m_outdim * m_outdim; r++) {
         top_data[c * m_outdim * m_outdim + r] = (Dtype) res[c][r];
