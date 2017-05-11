@@ -306,7 +306,7 @@ message ParamSpec {
 // NOTE
 // Update the next available ID when you add a new LayerParameter field.
 //
-// LayerParameter next available layer-specific ID: 152 (last added: multi_threshold_param)
+// LayerParameter next available layer-specific ID: 153 (last added: integer_convolution_param)
 message LayerParameter {
   optional string name = 1; // the layer name
   optional string type = 2; // the layer type
@@ -408,6 +408,7 @@ message LayerParameter {
   optional QuantParameter quant_param = 149;
   optional IntegerInnerProductParameter integer_inner_product_param = 150;
   optional MultiThresholdParameter multi_threshold_param = 151;
+  optional IntegerConvolutionParameter integer_convolution_param = 152;
 }
 
 // Message that stores parameters used to apply transformation
@@ -1263,6 +1264,19 @@ message MultiThresholdParameter {
   optional uint32 num_thres = 1;
   optional uint32 num_channels = 2;
   optional int32 channel_axis = 3 [default = 1];
+}
+
+message IntegerConvolutionParameter {
+  optional uint32 num_output = 1; // The number of outputs for the layer
+  optional uint32 pad = 2; // The padding size; defaults to 0
+  optional uint32 kernel_size = 3; // The kernel size
+  optional uint32 stride = 4; // The stride; defaults to 1
+  optional uint32 wbits = 5 [default = 2];
+  optional uint32 ibits = 6 [default = 2];
+  optional bool wsigned = 7 [default = true];
+  optional bool isigned = 8 [default = false];
+  optional string engine = 9 [default = "bitserial"];
+  optional int32 axis = 10 [default = 1];
 }
 
 message SPPParameter {
