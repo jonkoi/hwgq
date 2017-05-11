@@ -1,10 +1,25 @@
 #include <vector>
+#include <chrono>
 
 #include "caffe/filler.hpp"
 #include "caffe/layers/integer_convolution_layer.hpp"
 #include "caffe/util/math_functions.hpp"
 #include "caffe/util/im2col.hpp"
 #include <iostream>
+
+//#define ENABLE_TIMERS
+
+#ifndef ENABLE_TIMERS
+#define TIMER_START ;
+#define TIMER_END   ;
+#define TIMER_GET(x) ;
+#define TIMER_REPORT(x) ;
+#else
+#define TIMER_START start = std::chrono::high_resolution_clock::now();
+#define TIMER_END   end = std::chrono::high_resolution_clock::now();
+#define TIMER_GET(x) x = std::chrono::duration_cast<std::chrono::microseconds>(end-start).count();
+#define TIMER_REPORT(x) x;
+#endif
 
 namespace caffe {
 
@@ -71,6 +86,14 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
   const unsigned int ibits = icp.ibits();
   const bool wsigned = icp.wsigned();
   const bool isigned = icp.isigned();
+  TIMER_REPORT(
+  auto TIMER_START;
+  auto TIMER_END;
+  double uscount_im2col;
+  double uscount_quantin;
+  double uscount_mm;
+  double uscount_quantout;
+  )
   if(!m_weights_ready) {
     // first usage, set up the bit serial matrix
     const Dtype* weight_buf = this->blobs_[0]->cpu_data();
@@ -82,19 +105,35 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
     /// call im2col
     const Dtype * in_buff = bottom[0]->cpu_data() + m_ifm * m_indim * m_indim * d;
     Dtype * col_buff = col_buffer_.mutable_cpu_data();
+    TIMER_START
     im2col_cpu(in_buff, m_ifm, m_indim, m_indim,
         m_k, m_k, m_pad, m_pad, m_stride, m_stride, 1, 1, col_buff);
+    TIMER_END
+    TIMER_GET(uscount_im2col)
     // turn transpose of patch matrix into bit serial form
+    TIMER_START
     m_acts = toBitSerialMatrix_transpose(col_buff, m_outdim*m_outdim, m_ifm * m_k * m_k, ibits);
+    TIMER_END
+    TIMER_GET(uscount_quantin);
     // matrix matrix product
+    TIMER_START
     AccumulateMatrix res = bitSerialMatrixMatrix(m_acts, m_weights, isigned, wsigned);
+    TIMER_END
+    TIMER_GET(uscount_mm);
     // cast back to float -- or templatize accumulator type?
+    TIMER_START
     Dtype* top_data = top[0]->mutable_cpu_data() + m_ofm * m_outdim * m_outdim * d;
     for(size_t c = 0; c < m_ofm; c++) {
       for(size_t r = 0; r < m_outdim * m_outdim; r++) {
         top_data[c * m_outdim * m_outdim + r] = (Dtype) res[c][r];
       }
     }
+    TIMER_END
+    TIMER_GET(uscount_quantout)
+    TIMER_REPORT(
+      std::cout << "uscount_im2col uscount_quantin uscount_mm uscount_quantout" << std::endl;
+      std::cout << uscount_im2col << " " << uscount_quantin << " " << uscount_mm << " " << uscount_quantout << std::endl;
+    )
   }
 }
 

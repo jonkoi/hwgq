@@ -1,9 +1,23 @@
 #include <vector>
-
+#include <chrono>
 #include "caffe/filler.hpp"
 #include "caffe/layers/integer_inner_product_layer.hpp"
 #include "caffe/util/math_functions.hpp"
 #include <iostream>
+
+//#define ENABLE_TIMERS
+
+#ifndef ENABLE_TIMERS
+#define TIMER_START ;
+#define TIMER_END   ;
+#define TIMER_GET(x) ;
+#define TIMER_REPORT(x) ;
+#else
+#define TIMER_START start = std::chrono::high_resolution_clock::now();
+#define TIMER_END   end = std::chrono::high_resolution_clock::now();
+#define TIMER_GET(x) x = std::chrono::duration_cast<std::chrono::microseconds>(end-start).count();
+#define TIMER_REPORT(x) x;
+#endif
 
 namespace caffe {
 
@@ -71,20 +85,41 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
   }
   const Dtype* bottom_data = bottom[0]->cpu_data();
   Dtype* top_data = top[0]->mutable_cpu_data();
-
+  TIMER_REPORT(
+  auto TIMER_START;
+  auto TIMER_END;
+  double uscount_im2col=0;
+  double uscount_quantin;
+  double uscount_mm;
+  double uscount_quantout;
+  )
   // turn input into bit serial form
   // note that this is treated in transposed form
+  TIMER_START;
   m_acts = toBitSerialMatrix(bottom_data, m_depth, m_inputs, ibits);
+  TIMER_END
+  TIMER_GET(uscount_quantin)
+
   // matrix matrix product
+  TIMER_START;
   AccumulateMatrix res = bitSerialMatrixMatrix(m_weights, m_acts, wsigned, isigned);
+  TIMER_END
+  TIMER_GET(uscount_mm)
 
   // cast back to float -- or templatize accumulator type?
   // note that result is produced in transposed form
+  TIMER_START;
   for(size_t c = 0; c < m_depth; c++) {
     for(size_t r = 0; r < m_outputs; r++) {
       top_data[c * m_outputs + r] = (Dtype) res[c][r];
     }
   }
+  TIMER_END
+  TIMER_GET(uscount_quantout)
+  TIMER_REPORT(
+    std::cout << "uscount_im2col uscount_quantin uscount_mm uscount_quantout" << std::endl;
+    std::cout << uscount_im2col << " " << uscount_quantin << " " << uscount_mm << " " << uscount_quantout << std::endl;
+  )
 }
 
 template <typename Dtype>
