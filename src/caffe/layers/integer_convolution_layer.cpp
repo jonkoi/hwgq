@@ -97,7 +97,11 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
   if(!m_weights_ready) {
     // first usage, set up the bit serial matrix
     const Dtype* weight_buf = this->blobs_[0]->cpu_data();
-    m_weights = toBitSerialMatrix(weight_buf, m_ofm, m_ifm * m_k * m_k, wbits);
+    m_gemmctx = gemmbitserial::allocGEMMContext(
+      m_outdim*m_outdim, m_ifm * m_k * m_k, m_ofm, wbits, ibits, wsigned, isigned
+    );
+    m_gemmctx.rhs.importRegular(weight_buf);
+    //m_weights = toBitSerialMatrix(weight_buf, m_ofm, m_ifm * m_k * m_k, wbits);
     m_weights_ready = true;
   }
   for(int d = 0; d < m_depth; d++) {
@@ -112,12 +116,14 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
     TIMER_GET(uscount_im2col)
     // turn transpose of patch matrix into bit serial form
     TIMER_START
-    m_acts = toBitSerialMatrix_transpose(col_buff, m_outdim*m_outdim, m_ifm * m_k * m_k, ibits);
+    m_gemmctx.lhs.importRegular(col_buff, true);
+    //m_acts = toBitSerialMatrix_transpose(col_buff, m_outdim*m_outdim, m_ifm * m_k * m_k, ibits);
     TIMER_END
     TIMER_GET(uscount_quantin);
     // matrix matrix product
     TIMER_START
-    AccumulateMatrix res = bitSerialMatrixMatrix(m_acts, m_weights, isigned, wsigned);
+    //AccumulateMatrix res = bitSerialMatrixMatrix(m_acts, m_weights, isigned, wsigned);
+    gemmbitserial::gemmBitSerial(m_gemmctx);
     TIMER_END
     TIMER_GET(uscount_mm);
     // cast back to float -- or templatize accumulator type?
@@ -125,7 +131,7 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
     Dtype* top_data = top[0]->mutable_cpu_data() + m_ofm * m_outdim * m_outdim * d;
     for(size_t c = 0; c < m_ofm; c++) {
       for(size_t r = 0; r < m_outdim * m_outdim; r++) {
-        top_data[c * m_outdim * m_outdim + r] = (Dtype) res[c][r];
+        top_data[c * m_outdim * m_outdim + r] = (Dtype) m_gemmctx.res[c * m_outdim * m_outdim + r];
       }
     }
     TIMER_END

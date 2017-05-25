@@ -6,7 +6,7 @@
 #include "caffe/blob.hpp"
 #include "caffe/layer.hpp"
 #include "caffe/proto/caffe.pb.h"
-#include "gemm-bitserial.h"
+#include "gemmbitserial.hpp"
 
 namespace caffe {
 
@@ -33,8 +33,7 @@ class IntegerConvolutionLayer : public Layer<Dtype> {
   int m_ifm, m_ofm, m_k, m_stride, m_pad, m_indim, m_outdim;
   int m_depth;
 
-  BitSerialMatrix m_weights;
-  BitSerialMatrix m_acts;
+  gemmbitserial::GEMMContext m_gemmctx;
   bool m_weights_ready;
   Blob<Dtype> col_buffer_;
 

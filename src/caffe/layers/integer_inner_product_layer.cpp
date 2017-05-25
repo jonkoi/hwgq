@@ -80,7 +80,11 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
   if(!m_weights_ready) {
     // first usage, set up the bit serial matrix
     const Dtype* weight_buf = this->blobs_[0]->cpu_data();
-    m_weights = toBitSerialMatrix(weight_buf, m_outputs, m_inputs, wbits);
+    m_gemmctx = gemmbitserial::allocGEMMContext(
+      m_outputs, m_inputs, m_depth, wbits, ibits, wsigned, isigned
+    );
+    m_gemmctx.lhs.importRegular(weight_buf);
+    //m_weights = toBitSerialMatrix(weight_buf, m_outputs, m_inputs, wbits);
     m_weights_ready = true;
   }
   const Dtype* bottom_data = bottom[0]->cpu_data();
@@ -96,13 +100,15 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
   // turn input into bit serial form
   // note that this is treated in transposed form
   TIMER_START;
-  m_acts = toBitSerialMatrix(bottom_data, m_depth, m_inputs, ibits);
+  //m_acts = toBitSerialMatrix(bottom_data, m_depth, m_inputs, ibits);
+  m_gemmctx.rhs.importRegular(bottom_data);
   TIMER_END
   TIMER_GET(uscount_quantin)
 
   // matrix matrix product
   TIMER_START;
-  AccumulateMatrix res = bitSerialMatrixMatrix(m_weights, m_acts, wsigned, isigned);
+  gemmbitserial::gemmBitSerial(m_gemmctx);
+  //AccumulateMatrix res = bitSerialMatrixMatrix(m_weights, m_acts, wsigned, isigned);
   TIMER_END
   TIMER_GET(uscount_mm)
 
@@ -111,7 +117,7 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
   TIMER_START;
   for(size_t c = 0; c < m_depth; c++) {
     for(size_t r = 0; r < m_outputs; r++) {
-      top_data[c * m_outputs + r] = (Dtype) res[c][r];
+      top_data[c * m_outputs + r] = (Dtype) m_gemmctx.res[c * m_outputs + r];
     }
   }
   TIMER_END
