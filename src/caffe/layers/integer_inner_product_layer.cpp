@@ -84,6 +84,7 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
       m_outputs, m_inputs, m_depth, wbits, ibits, wsigned, isigned
     );
     m_gemmctx.lhs.importRegular(weight_buf);
+    //m_gemmctx.printSummary();
     //m_weights = toBitSerialMatrix(weight_buf, m_outputs, m_inputs, wbits);
     m_weights_ready = true;
   }
