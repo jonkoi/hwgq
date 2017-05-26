@@ -98,7 +98,7 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
     // first usage, set up the bit serial matrix
     const Dtype* weight_buf = this->blobs_[0]->cpu_data();
     m_gemmctx = gemmbitserial::allocGEMMContext(
-      m_outdim*m_outdim, m_ifm * m_k * m_k, m_ofm, wbits, ibits, wsigned, isigned
+      m_outdim*m_outdim, m_ifm * m_k * m_k, m_ofm, ibits, wbits, isigned, wsigned
     );
     m_gemmctx.rhs.importRegular(weight_buf);
     //m_weights = toBitSerialMatrix(weight_buf, m_ofm, m_ifm * m_k * m_k, wbits);
