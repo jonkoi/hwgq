@@ -28,6 +28,7 @@ class MultiThresholdLayer : public NeuronLayer<Dtype> {
 
   unsigned int m_thres;
   unsigned int m_channels;
+  bool m_useByteOutput;  // treat output blob as bytes instead of floats
 
 };
 

@@ -7,7 +7,7 @@
 #include "caffe/util/im2col.hpp"
 #include <iostream>
 
-//#define ENABLE_TIMERS
+#define ENABLE_TIMERS
 
 #ifndef ENABLE_TIMERS
 #define TIMER_START ;
@@ -27,6 +27,7 @@ template <typename Dtype>
 void IntegerConvolutionLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) {
   m_weights_ready=false;
+  m_useByteInput = this->layer_param_.integer_convolution_param().use_byte_input();
   m_ofm = this->layer_param_.integer_convolution_param().num_output();
   // note that we assume equal w/h strides/pad/kernel dims
   m_k = this->layer_param_.integer_convolution_param().kernel_size();
@@ -106,20 +107,38 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
   }
   for(int d = 0; d < m_depth; d++) {
     // TODO cater specifically for 1x1 case
-    /// call im2col
-    const Dtype * in_buff = bottom[0]->cpu_data() + m_ifm * m_indim * m_indim * d;
-    Dtype * col_buff = col_buffer_.mutable_cpu_data();
-    TIMER_START
-    im2col_cpu(in_buff, m_ifm, m_indim, m_indim,
-        m_k, m_k, m_pad, m_pad, m_stride, m_stride, 1, 1, col_buff);
-    TIMER_END
-    TIMER_GET(uscount_im2col)
-    // turn transpose of patch matrix into bit serial form
-    TIMER_START
-    m_gemmctx.lhs.importRegular(col_buff, true);
-    //m_acts = toBitSerialMatrix_transpose(col_buff, m_outdim*m_outdim, m_ifm * m_k * m_k, ibits);
-    TIMER_END
-    TIMER_GET(uscount_quantin);
+    if(m_useByteInput) {
+      // the bottom blob actually contains uint8_t values -- interpret as such
+      const uint8_t * in_buff_u8 = ((uint8_t*)(bottom[0]->cpu_data())) + m_ifm * m_indim * m_indim * d;
+      uint8_t * col_buff_u8 = (uint8_t*)(col_buffer_.mutable_cpu_data());
+      TIMER_START
+      im2col_cpu(in_buff_u8, m_ifm, m_indim, m_indim,
+          m_k, m_k, m_pad, m_pad, m_stride, m_stride, 1, 1, col_buff_u8);
+      TIMER_END
+      TIMER_GET(uscount_im2col)
+      // turn transpose of patch matrix into bit serial form
+      TIMER_START
+      m_gemmctx.lhs.importRegular(col_buff_u8, true);
+      TIMER_END
+      TIMER_GET(uscount_quantin);
+
+    } else {
+      // use regular float (or whatever Dtype is) im2col
+      const Dtype * in_buff = bottom[0]->cpu_data() + m_ifm * m_indim * m_indim * d;
+      Dtype * col_buff = col_buffer_.mutable_cpu_data();
+      TIMER_START
+      im2col_cpu(in_buff, m_ifm, m_indim, m_indim,
+          m_k, m_k, m_pad, m_pad, m_stride, m_stride, 1, 1, col_buff);
+      TIMER_END
+      TIMER_GET(uscount_im2col)
+      // turn transpose of patch matrix into bit serial form
+      TIMER_START
+      m_gemmctx.lhs.importRegular(col_buff, true);
+      //m_acts = toBitSerialMatrix_transpose(col_buff, m_outdim*m_outdim, m_ifm * m_k * m_k, ibits);
+      TIMER_END
+      TIMER_GET(uscount_quantin);
+    }
+    // all data for convolution is now ready inside the gemm context
     // matrix matrix product
     TIMER_START
     //AccumulateMatrix res = bitSerialMatrixMatrix(m_acts, m_weights, isigned, wsigned);

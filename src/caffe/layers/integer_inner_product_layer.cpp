@@ -25,6 +25,7 @@ template <typename Dtype>
 void IntegerInnerProductLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) {
   m_weights_ready=false;
+  m_useByteInput = this->layer_param_.integer_inner_product_param().use_byte_input();
   const int num_output = this->layer_param_.integer_inner_product_param().num_output();
   m_outputs = num_output;
   const int axis = bottom[0]->CanonicalAxisIndex(
@@ -102,7 +103,12 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
   // note that this is treated in transposed form
   TIMER_START;
   //m_acts = toBitSerialMatrix(bottom_data, m_depth, m_inputs, ibits);
-  m_gemmctx.rhs.importRegular(bottom_data);
+  if(m_useByteInput) {
+    // treat input blob as uint8_t data
+    m_gemmctx.rhs.importRegular((uint8_t *) bottom_data);
+  } else {
+    m_gemmctx.rhs.importRegular(bottom_data);
+  }
   TIMER_END
   TIMER_GET(uscount_quantin)
 

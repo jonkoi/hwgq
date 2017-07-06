@@ -37,6 +37,8 @@ class IntegerInnerProductLayer : public Layer<Dtype> {
   gemmbitserial::GEMMContext m_gemmctx;
   bool m_weights_ready;
 
+  bool m_useByteInput;  // treat input blob as bytes instead of floats
+
 };
 
 }  // namespace caffe
