@@ -55,6 +55,11 @@ void im2col_cpu(const Dtype* data_im, const int channels,
 }
 
 // Explicit instantiation
+template void im2col_cpu<uint8_t>(const uint8_t* data_im, const int channels,
+    const int height, const int width, const int kernel_h, const int kernel_w,
+    const int pad_h, const int pad_w, const int stride_h,
+    const int stride_w, const int dilation_h, const int dilation_w,
+    uint8_t* data_col);
 template void im2col_cpu<float>(const float* data_im, const int channels,
     const int height, const int width, const int kernel_h, const int kernel_w,
     const int pad_h, const int pad_w, const int stride_h,
