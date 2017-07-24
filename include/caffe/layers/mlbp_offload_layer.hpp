@@ -6,6 +6,8 @@
 #include "caffe/blob.hpp"
 #include "caffe/layer.hpp"
 #include "caffe/proto/caffe.pb.h"
+// MLBP includes
+#include "platform.hpp"
 
 namespace caffe {
 
@@ -28,6 +30,12 @@ class MLBPOffloadLayer : public Layer<Dtype> {
       const vector<Blob<Dtype>*>& top);
   virtual void Backward_cpu(const vector<Blob<Dtype>*>& top,
       const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom);
+
+  vector<int> m_in_shape, m_out_shape;
+  size_t m_bytes_per_in, m_bytes_per_out;
+  size_t m_in_elems, m_out_elems;
+  DonutDriver * m_driver;
+  void * m_accel_in_buf, * m_accel_out_buf;
 
 };
 
