@@ -306,7 +306,7 @@ message ParamSpec {
 // NOTE
 // Update the next available ID when you add a new LayerParameter field.
 //
-// LayerParameter next available layer-specific ID: 153 (last added: integer_convolution_param)
+// LayerParameter next available layer-specific ID: 154 (last added: mlbp_offload_param)
 message LayerParameter {
   optional string name = 1; // the layer name
   optional string type = 2; // the layer type
@@ -409,6 +409,7 @@ message LayerParameter {
   optional IntegerInnerProductParameter integer_inner_product_param = 150;
   optional MultiThresholdParameter multi_threshold_param = 151;
   optional IntegerConvolutionParameter integer_convolution_param = 152;
+  optional MLBPOffloadParameter mlbp_offload_param = 153;
 }
 
 // Message that stores parameters used to apply transformation
@@ -1280,6 +1281,20 @@ message IntegerConvolutionParameter {
   optional string engine = 9 [default = "bitserial"];
   optional int32 axis = 10 [default = 1];
   optional bool use_byte_input = 11 [default = false];
+}
+
+message MLBPOffloadParameter {
+  repeated uint32 input_shape = 1;  // 2D input shape: (chans, dim)
+  repeated uint32 output_shape = 2; // 2D output shape: (chans, dim)
+  required string bitfile_load_cmd = 3;      // command to execute to load bitfile
+  // convert input from chan-major to dim-major
+  optional bool interleave_input = 4 [default = false];
+  // convert output from dim-major to chan-major
+  optional bool deinterleave_output = 5 [default = false];
+  // treat input blob as 8-bit values (faster interleave, less copy)
+  optional bool use_8bit_input = 6 [default = false];
+  // treat output blob as 8-bit values (faster deinterleave, less copy)
+  optional bool use_8bit_output = 7 [default = false];
 }
 
 message SPPParameter {
