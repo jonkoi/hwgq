@@ -16,6 +16,7 @@ class MLBPOffloadLayer : public Layer<Dtype> {
  public:
   explicit MLBPOffloadLayer(const LayerParameter& param)
       : Layer<Dtype>(param) {}
+  virtual ~MLBPOffloadLayer();
   virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top);
   virtual void Reshape(const vector<Blob<Dtype>*>& bottom,
@@ -36,6 +37,8 @@ class MLBPOffloadLayer : public Layer<Dtype> {
   size_t m_in_elems, m_out_elems;
   DonutDriver * m_driver;
   void * m_accel_in_buf, * m_accel_out_buf;
+  // TODO get rid of these once we have 8bit support:
+  uint64_t * m_in_uint64_data, * m_out_uint64_data;
 
 };
 
