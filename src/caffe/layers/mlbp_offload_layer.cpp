@@ -10,21 +10,22 @@ void MLBPOffloadLayer<Dtype>::LayerSetUp(
   const vector<Blob<Dtype>*>& top)
 {
   // copy shapes into vector<int>s of 4D
-  m_in_shape.push_back(1);
-  m_in_shape.push_back(this->layer_param_.mlbp_offload_param().input_shape(0));
-  m_in_shape.push_back(this->layer_param_.mlbp_offload_param().input_shape(1));
-  m_in_shape.push_back(this->layer_param_.mlbp_offload_param().input_shape(1));
-  m_in_elems = m_in_shape[1]*m_in_shape[2]*m_in_shape[3];
+  m_in_elems = 1;
+  for(int i = 0; i < this->layer_param_.mlbp_offload_param().input_shape_size(); i++) {
+    m_in_shape.push_back(this->layer_param_.mlbp_offload_param().input_shape(i));
+    m_in_elems *= m_in_shape[i];
+  }
   // TODO bring back 8-bit and float options when both are tested
   // force 64bit values per now
   //m_bytes_per_in = this->layer_param_.mlbp_offload_param().use_8bit_input() ? sizeof(char) : sizeof(float);
   m_bytes_per_in = sizeof(uint64_t);
 
-  m_out_shape.push_back(1);
-  m_out_shape.push_back(this->layer_param_.mlbp_offload_param().output_shape(0));
-  m_out_shape.push_back(this->layer_param_.mlbp_offload_param().output_shape(1));
-  m_out_shape.push_back(this->layer_param_.mlbp_offload_param().output_shape(1));
-  m_out_elems = m_out_shape[1]*m_out_shape[2]*m_out_shape[3];
+
+  m_out_elems = 1;
+  for(int i = 0; i < this->layer_param_.mlbp_offload_param().output_shape_size(); i++) {
+    m_out_shape.push_back(this->layer_param_.mlbp_offload_param().output_shape(i));
+    m_out_elems *= m_out_shape[i];
+  }
   // TODO bring back 8-bit and float options when both are tested
   //m_bytes_per_out = this->layer_param_.mlbp_offload_param().use_8bit_output() ? sizeof(char) : sizeof(float);
   m_bytes_per_out = sizeof(uint64_t);
@@ -62,7 +63,8 @@ void MLBPOffloadLayer<Dtype>::Reshape(
   const vector<Blob<Dtype>*>& top)
 {
   vector<int> inshape = bottom[0]->shape();
-  for(int i  = 0; i < 4; i++) {
+  CHECK_EQ(inshape.size(), m_in_shape.size());
+  for(int i  = 0; i < inshape.size(); i++) {
     CHECK_EQ(inshape[i], m_in_shape[i]);
   }
   // reshape top blob to be in the expected shape
