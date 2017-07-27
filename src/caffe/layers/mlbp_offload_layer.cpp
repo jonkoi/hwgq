@@ -7,6 +7,30 @@
 
 namespace caffe {
 
+#define ind3D(sizeA, sizeB, sizeC, indA, indB, indC)  (indC + sizeC * (indB + sizeB * indA))
+
+template <typename Dtype>
+void interleaveChannels(const Dtype *in, Dtype *out, unsigned int chans, unsigned int dim) {
+  for(unsigned int c = 0; c < chans; c++) {
+    for(unsigned int h = 0; h < dim; h++) {
+      for(unsigned int w = 0; w < dim; w++) {
+        out[ind3D(dim, dim, chans, h, w, c)] = in[ind3D(chans, dim, dim, c, h, w)];
+      }
+    }
+  }
+}
+
+template <typename Dtype>
+void deinterleaveChannels(const Dtype *in, Dtype *out, unsigned int chans, unsigned int dim) {
+  for(unsigned int c = 0; c < chans; c++) {
+    for(unsigned int h = 0; h < dim; h++) {
+      for(unsigned int w = 0; w < dim; w++) {
+        out[ind3D(chans, dim, dim, c, h, w)] = in[ind3D(dim, dim, chans, h, w, c)];
+      }
+    }
+  }
+}
+
 template <typename Dtype>
 void MLBPOffloadLayer<Dtype>::LayerSetUp(
   const vector<Blob<Dtype>*>& bottom,
