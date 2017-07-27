@@ -37,17 +37,18 @@ void MLBPOffloadLayer<Dtype>::LayerSetUp(
   m_accel_in_buf = m_driver->allocAccelBuffer(m_in_elems * m_bytes_per_in);
   m_accel_out_buf = m_driver->allocAccelBuffer(m_out_elems * m_bytes_per_out);
   // set number of images to 1
-  driver->writeJamRegAddr(0x54, 1);
+  m_driver->writeJamRegAddr(0x54, 1);
   // set input and output accel buffer addresses
-  driver->write64BitJamRegAddr(0x10, (AccelDblReg) m_accel_in_buf);
-  driver->write64BitJamRegAddr(0x1c, (AccelDblReg) m_accel_in_buf);
+  m_driver->write64BitJamRegAddr(0x10, (AccelDblReg) m_accel_in_buf);
+  m_driver->write64BitJamRegAddr(0x1c, (AccelDblReg) m_accel_in_buf);
 
   // TODO get rid of these buffers when 8-bit and float support is tested
-  m_in_uint64_data = new uint64_t[total_in_elems];
-  m_out_uint64_data = new uint64_t[total_out_elems];
+  m_in_uint64_data = new uint64_t[m_in_elems];
+  m_out_uint64_data = new uint64_t[m_out_elems];
 }
 
-virtual MLBPOffloadLayer<Dtype>::~MLBPOffloadLayer() {
+template <typename Dtype>
+MLBPOffloadLayer<Dtype>::~MLBPOffloadLayer() {
   m_driver->deallocAccelBuffer(m_accel_in_buf);
   m_driver->deallocAccelBuffer(m_accel_out_buf);
   // TODO get rid of these buffers when 8-bit and float support is tested
@@ -61,7 +62,9 @@ void MLBPOffloadLayer<Dtype>::Reshape(
   const vector<Blob<Dtype>*>& top)
 {
   vector<int> inshape = bottom[0]->shape();
-  CHECK_EQ(inshape, m_in_shape);
+  for(int i  = 0; i < 4; i++) {
+    CHECK_EQ(inshape[i], m_in_shape[i]);
+  }
   // reshape top blob to be in the expected shape
   top[0]->Reshape(m_out_shape);
 }
@@ -80,16 +83,16 @@ void MLBPOffloadLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
     m_in_uint64_data[i] = (uint64_t) bottom_data[i];
   }
   // copy input data into accel-side buffer
-  driver->copyBufferHostToAccel(m_in_uint64_data, m_accel_in_buf, m_in_elems * m_bytes_per_in);
+  m_driver->copyBufferHostToAccel(m_in_uint64_data, m_accel_in_buf, m_in_elems * m_bytes_per_in);
   // execute and wait for accelerator to complete
-  driver->writeJamRegAddr(0x00, 1);
-  while((driver->readJamRegAddr(0x00) & 0x2) == 0) {
+  m_driver->writeJamRegAddr(0x00, 1);
+  while((m_driver->readJamRegAddr(0x00) & 0x2) == 0) {
     usleep(1);
   }
   // copy results back to host memory
-  driver->copyBufferAccelToHost(m_accel_out_buf, m_out_uint64_data, m_out_elems * m_bytes_per_out);
+  m_driver->copyBufferAccelToHost(m_accel_out_buf, m_out_uint64_data, m_out_elems * m_bytes_per_out);
   // cast output buffer from float to uint64_t
-  for(unsigned int i = 0; i < total_out_elems; i++) {
+  for(unsigned int i = 0; i < m_out_elems; i++) {
     top_data[i] = (Dtype) m_out_uint64_data[i];
   }
 
