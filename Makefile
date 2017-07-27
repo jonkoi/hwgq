@@ -184,6 +184,7 @@ LIBRARIES += glog gflags protobuf boost_system boost_filesystem m hdf5_hl hdf5
 USE_MBLP ?= 0
 ifeq ($(USE_MLBP), 1)
 	INCLUDE_DIRS += $(MLBP_DRIVER_DIR)
+	LIBRARIES += $(MLBP_ADDITIONAL_LIBS)
 endif
 
 # handle IO dependencies
