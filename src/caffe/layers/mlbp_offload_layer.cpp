@@ -7,6 +7,30 @@
 
 namespace caffe {
 
+#define ind3D(sizeA, sizeB, sizeC, indA, indB, indC)  (indC + sizeC * (indB + sizeB * indA))
+
+template <typename InType, typename OutType>
+void interleaveChannels(const InType *in, OutType *out, unsigned int chans, unsigned int dim) {
+  for(unsigned int c = 0; c < chans; c++) {
+    for(unsigned int h = 0; h < dim; h++) {
+      for(unsigned int w = 0; w < dim; w++) {
+        out[ind3D(dim, dim, chans, h, w, c)] = (OutType) in[ind3D(chans, dim, dim, c, h, w)];
+      }
+    }
+  }
+}
+
+template <typename InType, typename OutType>
+void deinterleaveChannels(const InType *in, OutType *out, unsigned int chans, unsigned int dim) {
+  for(unsigned int c = 0; c < chans; c++) {
+    for(unsigned int h = 0; h < dim; h++) {
+      for(unsigned int w = 0; w < dim; w++) {
+        out[ind3D(chans, dim, dim, c, h, w)] = (OutType) in[ind3D(dim, dim, chans, h, w, c)];
+      }
+    }
+  }
+}
+
 template <typename Dtype>
 void MLBPOffloadLayer<Dtype>::LayerSetUp(
   const vector<Blob<Dtype>*>& bottom,
@@ -83,13 +107,19 @@ void MLBPOffloadLayer<Dtype>::Reshape(
 template <typename Dtype>
 void MLBPOffloadLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
   const vector<Blob<Dtype>*>& top) {
-    const Dtype* bottom_data = bottom[0]->cpu_data();
-    Dtype* top_data = top[0]->mutable_cpu_data();
 #ifdef MLBP
-  // TODO do input interleaving if desired
-  // cast input buffer from float to uint64_t
-  for(unsigned int i = 0; i < m_in_elems; i++) {
-    m_in_uint64_data[i] = (uint64_t) bottom_data[i];
+  const Dtype* bottom_data = bottom[0]->cpu_data();
+  Dtype* top_data = top[0]->mutable_cpu_data();
+  if(this->layer_param_.mlbp_offload_param().interleave_input()) {
+    // do input interleaving if desired
+    int in_chans = m_in_shape[1];
+    int in_dim = m_in_shape[2];
+    interleaveChannels(bottom_data, m_in_uint64_data, in_chans, in_dim);
+  } else {
+    // just cast input buffer from float to uint64_t
+    for(unsigned int i = 0; i < m_in_elems; i++) {
+      m_in_uint64_data[i] = (uint64_t) bottom_data[i];
+    }
   }
   // copy input data into accel-side buffer
   m_driver->copyBufferHostToAccel(m_in_uint64_data, m_accel_in_buf, m_in_elems * m_bytes_per_in);
@@ -100,11 +130,17 @@ void MLBPOffloadLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
   }
   // copy results back to host memory
   m_driver->copyBufferAccelToHost(m_accel_out_buf, m_out_uint64_data, m_out_elems * m_bytes_per_out);
-  // cast output buffer from float to uint64_t
-  for(unsigned int i = 0; i < m_out_elems; i++) {
-    top_data[i] = (Dtype) m_out_uint64_data[i];
+  if(this->layer_param_.mlbp_offload_param().deinterleave_output()) {
+    // do output deinterleaving if desired
+    int out_chans = m_out_shape[1];
+    int out_dim = m_out_shape[2];
+    deinterleaveChannels(m_out_uint64_data, top_data, out_chans, out_dim);
+  } else {
+    // cast output buffer from float to uint64_t
+    for(unsigned int i = 0; i < m_out_elems; i++) {
+      top_data[i] = (Dtype) m_out_uint64_data[i];
+    }
   }
-  // TODO do output deinterleaving if desired
 #else
   NOT_IMPLEMENTED;
 #endif
