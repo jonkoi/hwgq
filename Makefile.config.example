@@ -12,6 +12,11 @@
 # USE_LEVELDB := 0
 # USE_LMDB := 0
 
+# USE_MLBP := 1
+# MLBP_DRIVER_DIR := /home/xilinx/BNN-PYNQ/bnn/src/library/driver
+# MLBP_PLATFORM := platform-xlnk
+# MLBP_ADDITIONAL_LIBS := sds_lib
+
 # uncomment to allow MDB_NOLOCK when reading LMDB files (only if necessary)
 #	You should not set this flag if you will be reading LMDBs with any
 #	possibility of simultaneous read and write
