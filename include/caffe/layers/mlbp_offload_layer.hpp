@@ -6,8 +6,11 @@
 #include "caffe/blob.hpp"
 #include "caffe/layer.hpp"
 #include "caffe/proto/caffe.pb.h"
+
+#ifdef MLBP
 // MLBP includes
 #include "platform.hpp"
+#endif
 
 namespace caffe {
 
@@ -35,10 +38,13 @@ class MLBPOffloadLayer : public Layer<Dtype> {
   vector<int> m_in_shape, m_out_shape;
   size_t m_bytes_per_in, m_bytes_per_out;
   size_t m_in_elems, m_out_elems;
-  DonutDriver * m_driver;
   void * m_accel_in_buf, * m_accel_out_buf;
   // TODO get rid of these once we have 8bit support:
   uint64_t * m_in_uint64_data, * m_out_uint64_data;
+
+#ifdef MLBP
+  DonutDriver * m_driver;
+#endif
 
 };
 

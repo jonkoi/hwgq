@@ -180,6 +180,12 @@ endif
 
 LIBRARIES += glog gflags protobuf boost_system boost_filesystem m hdf5_hl hdf5 sds_lib
 
+# MLBP
+USE_MBLP ?= 0
+ifeq ($(USE_MLBP), 1)
+	INCLUDE_DIRS += $(MLBP_DRIVER_DIR)
+endif
+
 # handle IO dependencies
 USE_LEVELDB ?= 1
 USE_LMDB ?= 1
@@ -340,6 +346,11 @@ ifeq ($(USE_LMDB), 1)
 ifeq ($(ALLOW_LMDB_NOLOCK), 1)
 	COMMON_FLAGS += -DALLOW_LMDB_NOLOCK
 endif
+endif
+
+ifeq ($(USE_MLBP), 1)
+	CXX_SRCS += $(MLBP_DRIVER_DIR)/$(MLBP_PLATFORM).cpp
+	COMMON_FLAGS += -DMLBP
 endif
 
 # CPU-only configuration

@@ -1,6 +1,9 @@
 #include "caffe/layers/mlbp_offload_layer.hpp"
+
+#ifdef MLBP
 // MLBP includes
 #include "platform.hpp"
+#endif
 
 namespace caffe {
 
@@ -30,6 +33,7 @@ void MLBPOffloadLayer<Dtype>::LayerSetUp(
   //m_bytes_per_out = this->layer_param_.mlbp_offload_param().use_8bit_output() ? sizeof(char) : sizeof(float);
   m_bytes_per_out = sizeof(uint64_t);
 
+#ifdef MLBP
   // connect to the MLBP donut driver
   m_driver = initPlatform();
   // execute the FPGA bitfile load command
@@ -42,6 +46,7 @@ void MLBPOffloadLayer<Dtype>::LayerSetUp(
   // set input and output accel buffer addresses
   m_driver->write64BitJamRegAddr(0x10, (AccelDblReg) m_accel_in_buf);
   m_driver->write64BitJamRegAddr(0x1c, (AccelDblReg) m_accel_in_buf);
+#endif
 
   // TODO get rid of these buffers when 8-bit and float support is tested
   m_in_uint64_data = new uint64_t[m_in_elems];
@@ -50,8 +55,10 @@ void MLBPOffloadLayer<Dtype>::LayerSetUp(
 
 template <typename Dtype>
 MLBPOffloadLayer<Dtype>::~MLBPOffloadLayer() {
+#ifdef MLBP
   m_driver->deallocAccelBuffer(m_accel_in_buf);
   m_driver->deallocAccelBuffer(m_accel_out_buf);
+#endif
   // TODO get rid of these buffers when 8-bit and float support is tested
   delete [] m_in_uint64_data;
   delete [] m_out_uint64_data;
@@ -78,7 +85,7 @@ void MLBPOffloadLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
   const vector<Blob<Dtype>*>& top) {
     const Dtype* bottom_data = bottom[0]->cpu_data();
     Dtype* top_data = top[0]->mutable_cpu_data();
-
+#ifdef MLBP
   // TODO do input interleaving if desired
   // cast input buffer from float to uint64_t
   for(unsigned int i = 0; i < m_in_elems; i++) {
@@ -97,8 +104,10 @@ void MLBPOffloadLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
   for(unsigned int i = 0; i < m_out_elems; i++) {
     top_data[i] = (Dtype) m_out_uint64_data[i];
   }
-
   // TODO do output deinterleaving if desired
+#else
+  NOT_IMPLEMENTED;
+#endif
 }
 
 template <typename Dtype>
