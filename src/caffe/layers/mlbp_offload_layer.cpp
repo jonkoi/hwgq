@@ -65,11 +65,13 @@ void MLBPOffloadLayer<Dtype>::LayerSetUp(
   // set up accelerator buffers
   m_accel_in_buf = m_driver->allocAccelBuffer(m_in_elems * m_bytes_per_in);
   m_accel_out_buf = m_driver->allocAccelBuffer(m_out_elems * m_bytes_per_out);
+  // disable weight loading mode (assume built-in weights)
+  m_driver->writeJamRegAddr(0x28, 0);
   // set number of images to 1
   m_driver->writeJamRegAddr(0x54, 1);
   // set input and output accel buffer addresses
   m_driver->write64BitJamRegAddr(0x10, (AccelDblReg) m_accel_in_buf);
-  m_driver->write64BitJamRegAddr(0x1c, (AccelDblReg) m_accel_in_buf);
+  m_driver->write64BitJamRegAddr(0x1c, (AccelDblReg) m_accel_out_buf);
 #endif
 
   // TODO get rid of these buffers when 8-bit and float support is tested
@@ -82,6 +84,8 @@ MLBPOffloadLayer<Dtype>::~MLBPOffloadLayer() {
 #ifdef MLBP
   m_driver->deallocAccelBuffer(m_accel_in_buf);
   m_driver->deallocAccelBuffer(m_accel_out_buf);
+  m_driver->detach();
+  deinitPlatform(m_driver);
 #endif
   // TODO get rid of these buffers when 8-bit and float support is tested
   delete [] m_in_uint64_data;
