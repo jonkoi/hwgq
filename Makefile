@@ -28,6 +28,10 @@ endif
 SRC_DIRS := $(shell find * -type d -exec bash -c "find {} -maxdepth 1 \
 	\( -name '*.cpp' -o -name '*.proto' \) | grep -q ." \; -print)
 
+# MLBP
+USE_MBLP ?= 0
+
+
 # The target shared library name
 LIBRARY_NAME := $(PROJECT)
 LIB_BUILD_DIR := $(BUILD_DIR)/lib
@@ -181,9 +185,9 @@ endif
 LIBRARIES += glog gflags protobuf boost_system boost_filesystem m hdf5_hl hdf5
 
 # MLBP
-USE_MBLP ?= 0
 ifeq ($(USE_MLBP), 1)
 	INCLUDE_DIRS += $(MLBP_DRIVER_DIR)
+	LIBRARY_DIRS += $(MLBP_DRIVER_DIR)
 	LIBRARIES += $(MLBP_ADDITIONAL_LIBS)
 endif
 
@@ -351,7 +355,7 @@ endif
 
 ifeq ($(USE_MLBP), 1)
 	CXX_SRCS += $(MLBP_DRIVER_DIR)/$(MLBP_PLATFORM).cpp
-	COMMON_FLAGS += -DMLBP
+	COMMON_FLAGS += -DMLBP -mfpu=neon
 endif
 
 # CPU-only configuration
