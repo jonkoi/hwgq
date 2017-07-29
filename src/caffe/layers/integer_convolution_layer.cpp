@@ -27,6 +27,14 @@ template <typename Dtype>
 void IntegerConvolutionLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) {
   m_weights_ready=false;
+  if(this->layer_param_.integer_convolution_param().engine() == "bitserial") {
+    m_usebitserial = true;
+  } else if(this->layer_param_.integer_convolution_param().engine() == "gemmlowp") {
+    m_usebitserial = false;
+  } else {
+    // undefined engine
+    m_usebitserial = true;
+  }
   m_useByteInput = this->layer_param_.integer_convolution_param().use_byte_input();
   m_ofm = this->layer_param_.integer_convolution_param().num_output();
   // note that we assume equal w/h strides/pad/kernel dims
@@ -138,14 +146,17 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
   double uscount_quantout;
   )
   if(!m_weights_ready) {
-    // first usage, set up the bit serial matrix
-    const Dtype* weight_buf = this->blobs_[0]->cpu_data();
-    m_gemmctx = gemmbitserial::allocGEMMContext(
-      m_outdim*m_outdim, m_ifm * m_k * m_k, m_ofm, ibits, wbits, isigned, wsigned
-    );
-    m_gemmctx.rhs.importRegular(weight_buf);
-    //m_weights = toBitSerialMatrix(weight_buf, m_ofm, m_ifm * m_k * m_k, wbits);
-    m_weights_ready = true;
+    if(m_usebitserial) {
+      // first usage, set up the bit serial matrix
+      const Dtype* weight_buf = this->blobs_[0]->cpu_data();
+      m_gemmctx = gemmbitserial::allocGEMMContext(
+        m_outdim*m_outdim, m_ifm * m_k * m_k, m_ofm, ibits, wbits, isigned, wsigned
+      );
+      m_gemmctx.rhs.importRegular(weight_buf);
+      m_weights_ready = true;
+    } else {
+      // TODO set up weight matrix for gemmlowp
+    }
   }
   for(int d = 0; d < m_depth; d++) {
     // TODO cater specifically for 1x1 case
@@ -154,8 +165,6 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
       const uint8_t * in_buff_u8 = ((uint8_t*)(bottom[0]->cpu_data())) + m_ifm * m_indim * m_indim * d;
       uint8_t * col_buff_u8 = (uint8_t*)(col_buffer_.mutable_cpu_data());
       TIMER_START
-      /*im2col_cpu(in_buff_u8, m_ifm, m_indim, m_indim,
-          m_k, m_k, m_pad, m_pad, m_stride, m_stride, 1, 1, col_buff_u8);*/
       darknet_im2row_cpu(
         in_buff_u8, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, col_buff_u8
       );
@@ -163,7 +172,9 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
       TIMER_GET(uscount_im2col)
       // turn transpose of patch matrix into bit serial form
       TIMER_START
-      m_gemmctx.lhs.importRegular(col_buff_u8, true);
+      if(m_usebitserial) {
+        m_gemmctx.lhs.importRegular(col_buff_u8, true);
+      }
       TIMER_END
       TIMER_GET(uscount_quantin);
 
@@ -172,10 +183,6 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
       const Dtype * in_buff = bottom[0]->cpu_data() + m_ifm * m_indim * m_indim * d;
       Dtype * col_buff = col_buffer_.mutable_cpu_data();
       TIMER_START
-      /*
-      im2col_cpu(in_buff, m_ifm, m_indim, m_indim,
-          m_k, m_k, m_pad, m_pad, m_stride, m_stride, 1, 1, col_buff);
-      */
       darknet_im2row_cpu(
         in_buff, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, col_buff
       );
@@ -183,24 +190,30 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
       TIMER_GET(uscount_im2col)
       // turn transpose of patch matrix into bit serial form
       TIMER_START
-      m_gemmctx.lhs.importRegular(col_buff, false);
-      //m_acts = toBitSerialMatrix_transpose(col_buff, m_outdim*m_outdim, m_ifm * m_k * m_k, ibits);
+      if(m_usebitserial) {
+        m_gemmctx.lhs.importRegular(col_buff, false);
+      }
       TIMER_END
       TIMER_GET(uscount_quantin);
     }
     // all data for convolution is now ready inside the gemm context
     // matrix matrix product
     TIMER_START
-    //AccumulateMatrix res = bitSerialMatrixMatrix(m_acts, m_weights, isigned, wsigned);
-    gemmbitserial::gemmBitSerial(m_gemmctx);
+    if(m_usebitserial) {
+      gemmbitserial::gemmBitSerial(m_gemmctx);
+    } else {
+      // TODO use gemmlowp
+    }
     TIMER_END
     TIMER_GET(uscount_mm);
     // cast back to float -- or templatize accumulator type?
     TIMER_START
     Dtype* top_data = top[0]->mutable_cpu_data() + m_ofm * m_outdim * m_outdim * d;
-    for(size_t c = 0; c < m_ofm; c++) {
-      for(size_t r = 0; r < m_outdim * m_outdim; r++) {
-        top_data[c * m_outdim * m_outdim + r] = (Dtype) m_gemmctx.res[c * m_outdim * m_outdim + r];
+    if(m_usebitserial) {
+      for(size_t c = 0; c < m_ofm; c++) {
+        for(size_t r = 0; r < m_outdim * m_outdim; r++) {
+          top_data[c * m_outdim * m_outdim + r] = (Dtype) m_gemmctx.res[c * m_outdim * m_outdim + r];
+        }
       }
     }
     TIMER_END

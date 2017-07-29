@@ -25,6 +25,14 @@ template <typename Dtype>
 void IntegerInnerProductLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) {
   m_weights_ready=false;
+  if(this->layer_param_.integer_inner_product_param().engine() == "bitserial") {
+    m_usebitserial = true;
+  } else if(this->layer_param_.integer_inner_product_param().engine() == "gemmlowp") {
+    m_usebitserial = false;
+  } else {
+    // undefined engine
+    m_usebitserial = true;
+  }
   m_useByteInput = this->layer_param_.integer_inner_product_param().use_byte_input();
   const int num_output = this->layer_param_.integer_inner_product_param().num_output();
   m_outputs = num_output;
@@ -79,14 +87,14 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
   const bool wsigned = iipp.wsigned();
   const bool isigned = iipp.isigned();
   if(!m_weights_ready) {
-    // first usage, set up the bit serial matrix
     const Dtype* weight_buf = this->blobs_[0]->cpu_data();
-    m_gemmctx = gemmbitserial::allocGEMMContext(
-      m_outputs, m_inputs, m_depth, wbits, ibits, wsigned, isigned
-    );
-    m_gemmctx.lhs.importRegular(weight_buf);
-    //m_gemmctx.printSummary();
-    //m_weights = toBitSerialMatrix(weight_buf, m_outputs, m_inputs, wbits);
+    if(m_usebitserial) {
+      // first usage, set up the bit serial matrix
+      m_gemmctx = gemmbitserial::allocGEMMContext(
+        m_outputs, m_inputs, m_depth, wbits, ibits, wsigned, isigned
+      );
+      m_gemmctx.lhs.importRegular(weight_buf);
+    }
     m_weights_ready = true;
   }
   const Dtype* bottom_data = bottom[0]->cpu_data();
@@ -102,29 +110,33 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
   // turn input into bit serial form
   // note that this is treated in transposed form
   TIMER_START;
-  //m_acts = toBitSerialMatrix(bottom_data, m_depth, m_inputs, ibits);
-  if(m_useByteInput) {
-    // treat input blob as uint8_t data
-    m_gemmctx.rhs.importRegular((uint8_t *) bottom_data);
-  } else {
-    m_gemmctx.rhs.importRegular(bottom_data);
+  if(m_usebitserial) {
+    if(m_useByteInput) {
+      // treat input blob as uint8_t data
+      m_gemmctx.rhs.importRegular((uint8_t *) bottom_data);
+    } else {
+      m_gemmctx.rhs.importRegular(bottom_data);
+    }
   }
   TIMER_END
   TIMER_GET(uscount_quantin)
 
   // matrix matrix product
   TIMER_START;
-  gemmbitserial::gemmBitSerial(m_gemmctx);
-  //AccumulateMatrix res = bitSerialMatrixMatrix(m_weights, m_acts, wsigned, isigned);
+  if(m_usebitserial) {
+    gemmbitserial::gemmBitSerial(m_gemmctx);
+  }
   TIMER_END
   TIMER_GET(uscount_mm)
 
   // cast back to float -- or templatize accumulator type?
   // note that result is produced in transposed form
   TIMER_START;
-  for(size_t c = 0; c < m_depth; c++) {
-    for(size_t r = 0; r < m_outputs; r++) {
-      top_data[c * m_outputs + r] = (Dtype) m_gemmctx.res[c * m_outputs + r];
+  if(m_usebitserial) {
+    for(size_t c = 0; c < m_depth; c++) {
+      for(size_t r = 0; r < m_outputs; r++) {
+        top_data[c * m_outputs + r] = (Dtype) m_gemmctx.res[c * m_outputs + r];
+      }
     }
   }
   TIMER_END

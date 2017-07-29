@@ -37,6 +37,7 @@ class IntegerConvolutionLayer : public Layer<Dtype> {
   bool m_weights_ready;
   Blob<Dtype> col_buffer_;
   bool m_useByteInput;  // treat input blob as bytes instead of floats
+  bool m_usebitserial;   // use gemmlowp if false
 
 };
 

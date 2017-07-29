@@ -38,6 +38,7 @@ class IntegerInnerProductLayer : public Layer<Dtype> {
   bool m_weights_ready;
 
   bool m_useByteInput;  // treat input blob as bytes instead of floats
+  bool m_usebitserial;
 
 };
 
