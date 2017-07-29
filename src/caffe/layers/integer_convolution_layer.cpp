@@ -79,6 +79,48 @@ void IntegerConvolutionLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
   col_buffer_.Reshape(col_buffer_shape);
 }
 
+// from DarkNet
+template <typename Dtype>
+inline float im2col_get_pixel(const Dtype *im, int height, int width, int channels,
+                        int row, int col, int channel, int pad)
+{
+    row -= pad;
+    col -= pad;
+
+    if (row < 0 || col < 0 ||
+        row >= height || col >= width) return 0;
+    return im[col + width*(row + height*channel)];
+}
+
+//From Berkeley Vision's Caffe!
+//https://github.com/BVLC/caffe/blob/master/LICENSE
+template <typename Dtype>
+void darknet_im2col_cpu(const Dtype* data_im,
+     int channels,  int height,  int width,
+     int ksize,  int stride, int pad, Dtype* data_col)
+{
+    int c,h,w;
+    int height_col = (height + 2*pad - ksize) / stride + 1;
+    int width_col = (width + 2*pad - ksize) / stride + 1;
+
+    int channels_col = channels * ksize * ksize;
+    for (c = 0; c < channels_col; ++c) {
+        int w_offset = c % ksize;
+        int h_offset = (c / ksize) % ksize;
+        int c_im = c / ksize / ksize;
+        for (h = 0; h < height_col; ++h) {
+            for (w = 0; w < width_col; ++w) {
+                int im_row = h_offset + h * stride;
+                int im_col = w_offset + w * stride;
+                //int col_index = (c * height_col + h) * width_col + w;
+                int col_index = c + channels_col * (w + h * width_col);
+                data_col[col_index] = im2col_get_pixel(data_im, height, width, channels,
+                        im_row, im_col, c_im, pad);
+            }
+        }
+    }
+}
+
 template <typename Dtype>
 void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
     const vector<Blob<Dtype>*>& top) {
@@ -127,13 +169,18 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
       const Dtype * in_buff = bottom[0]->cpu_data() + m_ifm * m_indim * m_indim * d;
       Dtype * col_buff = col_buffer_.mutable_cpu_data();
       TIMER_START
+      /*
       im2col_cpu(in_buff, m_ifm, m_indim, m_indim,
           m_k, m_k, m_pad, m_pad, m_stride, m_stride, 1, 1, col_buff);
+      */
+      darknet_im2col_cpu(
+        in_buff, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, col_buff
+      );
       TIMER_END
       TIMER_GET(uscount_im2col)
       // turn transpose of patch matrix into bit serial form
       TIMER_START
-      m_gemmctx.lhs.importRegular(col_buff, true);
+      m_gemmctx.lhs.importRegular(col_buff, false);
       //m_acts = toBitSerialMatrix_transpose(col_buff, m_outdim*m_outdim, m_ifm * m_k * m_k, ibits);
       TIMER_END
       TIMER_GET(uscount_quantin);
