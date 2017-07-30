@@ -99,7 +99,12 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
       gemmlowp_weights.resize(m_outputs*m_inputs);
       gemmlowp_acts.resize(m_depth*m_inputs);
       gemmlowp_res.resize(m_depth*m_outputs);
-      // TODO copy weight matrix, adjusting to stay positive if signed
+      // copy weight matrix, adjusting to stay positive if signed
+      uint8_t * gemmlowp_weights_ptr = gemmlowp_weights.data();
+      Dtype weight_offs = wsigned ? 128 : 0;
+      for(int i = 0; i < m_outputs*m_inputs; i++) {
+        gemmlowp_weights_ptr[i] = (uint8_t)(weight_buf[i] + weight_offs);
+      }
     }
     m_weights_ready = true;
   }
@@ -128,9 +133,10 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
       memcpy(gemmlowp_acts.data(), (uint8_t *) bottom_data, m_depth*m_inputs);
     } else {
       // cast to uint8
+      uint8_t * actptr = gemmlowp_acts.data();
+      Dtype act_offs = isigned ? 128 : 0;
       for(unsigned int i = 0; i < m_depth*m_inputs; i++) {
-        // TODO value adjustment here if needed
-        gemmlowp_acts.data()[i] = (std::uint8_t) bottom_data[i];
+        actptr[i] = (std::uint8_t) (bottom_data[i] + act_offs);
       }
 
     }
@@ -148,9 +154,8 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
     const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::ColMajor> rhs(gemmlowp_acts.data(), m_inputs, m_depth);
     gemmlowp::MatrixMap<std::int32_t, gemmlowp::MapOrder::ColMajor> resmap(gemmlowp_res.data(), m_outputs, m_depth);
     std::tuple<> output_pipeline;
-    // TODO adjust according to value correctness need
-    int lhs_offset = 0;
-    int rhs_offset = 0;
+    int lhs_offset = wsigned ? -128 : 0;
+    int rhs_offset = isigned ? -128 : 0;
     gemmlowp::GemmWithOutputPipeline<std::uint8_t, std::int32_t,
     gemmlowp::DefaultL8R8BitDepthParams>(
       &gemm_context, lhs, rhs,

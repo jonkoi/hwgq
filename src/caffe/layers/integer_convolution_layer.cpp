@@ -89,7 +89,7 @@ void IntegerConvolutionLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
 
 // from DarkNet
 template <typename Dtype>
-inline float im2row_get_pixel(const Dtype *im, const int height, const int width, const int channels,
+inline Dtype im2row_get_pixel(const Dtype *im, const int height, const int width, const int channels,
                         const int row, const int col, const int channel, const int pad)
 {
     const int prow = row - pad;
@@ -102,10 +102,10 @@ inline float im2row_get_pixel(const Dtype *im, const int height, const int width
 
 //From Berkeley Vision's Caffe!
 //https://github.com/BVLC/caffe/blob/master/LICENSE
-template <typename Dtype>
+template <typename Dtype, typename DtypeOut>
 void darknet_im2row_cpu(const Dtype* data_im,
      const int channels, const int height, const int width,
-     const int ksize, const int stride, const int pad, Dtype* data_col)
+     const int ksize, const int stride, const int pad, DtypeOut* data_col)
 {
     int c,h,w;
     const int height_col = (height + 2*pad - ksize) / stride + 1;
@@ -122,7 +122,7 @@ void darknet_im2row_cpu(const Dtype* data_im,
                 const int im_row = h_offset + h * stride;
                 const int im_col = w_offset + w * stride;
                 const int col_index = c + channels_col * (w + h * width_col);
-                data_col[col_index] = im2row_get_pixel(data_im, height, width, channels,
+                data_col[col_index] = (DtypeOut) im2row_get_pixel(data_im, height, width, channels,
                         im_row, im_col, c_im, pad);
             }
         }
@@ -146,69 +146,70 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
   double uscount_quantout;
   )
   if(!m_weights_ready) {
+    const Dtype* weight_buf = this->blobs_[0]->cpu_data();
     if(m_usebitserial) {
       // first usage, set up the bit serial matrix
-      const Dtype* weight_buf = this->blobs_[0]->cpu_data();
       m_gemmctx = gemmbitserial::allocGEMMContext(
         m_outdim*m_outdim, m_ifm * m_k * m_k, m_ofm, ibits, wbits, isigned, wsigned
       );
       m_gemmctx.rhs.importRegular(weight_buf);
-      m_weights_ready = true;
     } else {
       // set up for gemmlowp
       gemmlowp_weights.resize(m_ifm * m_k * m_k * m_ofm);
       gemmlowp_acts.resize(m_outdim*m_outdim * m_ifm * m_k * m_k);
       gemmlowp_res.resize(m_outdim*m_outdim*m_ofm);
-      // TODO copy weight matrix, adjusting to stay positive if signed
+      // copy weight matrix, adjusting to stay positive if signed
+      uint8_t * gemmlowp_weights_ptr = gemmlowp_weights.data();
+      Dtype weight_offs = wsigned ? 128 : 0;
+      for(int i = 0; i < m_ifm * m_k * m_k * m_ofm; i++) {
+        gemmlowp_weights_ptr[i] = (uint8_t)(weight_buf[i] + weight_offs);
+      }
+      m_weights_ready = true;
     }
   }
   for(int d = 0; d < m_depth; d++) {
     // TODO cater specifically for 1x1 case
+    uint8_t * col_buff_u8 = (uint8_t*)(col_buffer_.mutable_cpu_data());
+    TIMER_START
     if(m_useByteInput) {
       // the bottom blob actually contains uint8_t values -- interpret as such
       const uint8_t * in_buff_u8 = ((uint8_t*)(bottom[0]->cpu_data())) + m_ifm * m_indim * m_indim * d;
-      uint8_t * col_buff_u8 = (uint8_t*)(col_buffer_.mutable_cpu_data());
-      TIMER_START
-      darknet_im2row_cpu(
-        in_buff_u8, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, col_buff_u8
-      );
-      TIMER_END
-      TIMER_GET(uscount_im2col)
-      // turn transpose of patch matrix into bit serial form
-      TIMER_START
       if(m_usebitserial) {
-        m_gemmctx.lhs.importRegular(col_buff_u8, false);
+        darknet_im2row_cpu(
+          in_buff_u8, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, col_buff_u8
+        );
       } else {
-        // TODO can directly lower into gemmlowp_acts instead
-        memcpy(gemmlowp_acts.data(), col_buff_u8, m_outdim*m_outdim * m_ifm * m_k * m_k);
+        // directly lower into gemmlowp activation buffer
+        darknet_im2row_cpu(
+          in_buff_u8, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, gemmlowp_acts.data()
+        );
       }
-      TIMER_END
-      TIMER_GET(uscount_quantin);
-
     } else {
       // use regular float (or whatever Dtype is) im2col
       const Dtype * in_buff = bottom[0]->cpu_data() + m_ifm * m_indim * m_indim * d;
       Dtype * col_buff = col_buffer_.mutable_cpu_data();
-      TIMER_START
-      darknet_im2row_cpu(
-        in_buff, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, col_buff
-      );
-      TIMER_END
-      TIMER_GET(uscount_im2col)
-      // turn transpose of patch matrix into bit serial form
-      TIMER_START
+      // darknet_im2row_cpu supports casting internally
       if(m_usebitserial) {
-        m_gemmctx.lhs.importRegular(col_buff, false);
+        darknet_im2row_cpu(
+          in_buff, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, col_buff_u8
+        );
       } else {
-        // cast to uint8 (could also build typeconv into the darknet im2row)
-        for(unsigned int i = 0; i <m_outdim*m_outdim * m_ifm * m_k * m_k; i++) {
-          // TODO value adjustment here if needed
-          gemmlowp_acts.data()[i] = (std::uint8_t) col_buff[i];
-        }
+        // directly lower into gemmlowp activation buffer
+        darknet_im2row_cpu(
+          in_buff, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, gemmlowp_acts.data()
+        );
       }
-      TIMER_END
-      TIMER_GET(uscount_quantin);
     }
+    TIMER_END
+    TIMER_GET(uscount_im2col)
+
+    TIMER_START
+    if(m_usebitserial) {
+      m_gemmctx.lhs.importRegular(col_buff_u8, false);
+    }
+    TIMER_END
+    TIMER_GET(uscount_quantin);
+
     // all data for convolution is now ready inside the gemm context
     // matrix matrix product
     TIMER_START
@@ -220,9 +221,8 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
       const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::ColMajor> rhs(gemmlowp_weights.data(), m_ifm * m_k * m_k, m_ofm);
       gemmlowp::MatrixMap<std::int32_t, gemmlowp::MapOrder::ColMajor> resmap(gemmlowp_res.data(), m_outdim * m_outdim, m_ofm);
       std::tuple<> output_pipeline;
-      // TODO adjust according to value correctness need
-      int lhs_offset = 0;
-      int rhs_offset = 0;
+      int lhs_offset = isigned ? -128 : 0;
+      int rhs_offset = wsigned ? -128 : 0;
       gemmlowp::GemmWithOutputPipeline<std::uint8_t, std::int32_t,
       gemmlowp::DefaultL8R8BitDepthParams>(
         &gemm_context, lhs, rhs,
