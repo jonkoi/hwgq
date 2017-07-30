@@ -173,7 +173,7 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
       // turn transpose of patch matrix into bit serial form
       TIMER_START
       if(m_usebitserial) {
-        m_gemmctx.lhs.importRegular(col_buff_u8, true);
+        m_gemmctx.lhs.importRegular(col_buff_u8, false);
       }
       TIMER_END
       TIMER_GET(uscount_quantin);
