@@ -1260,6 +1260,8 @@ message IntegerInnerProductParameter {
   optional bool isigned = 6 [default = false];
   optional string engine = 7 [default = "bitserial"];
   optional bool use_byte_input = 8 [default = false];
+  optional int32 wsigned_offset = 9 [default = 128];
+  optional int32 isigned_offset = 10 [default = 128];
 }
 
 message MultiThresholdParameter {
@@ -1281,6 +1283,8 @@ message IntegerConvolutionParameter {
   optional string engine = 9 [default = "bitserial"];
   optional int32 axis = 10 [default = 1];
   optional bool use_byte_input = 11 [default = false];
+  optional int32 wsigned_offset = 12 [default = 128];
+  optional int32 isigned_offset = 13 [default = 128];
 }
 
 message MLBPOffloadParameter {

@@ -50,9 +50,11 @@ void IntegerConvolutionLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bott
   } else {
     this->blobs_.resize(1);
     // Initialize the weight blob
-    vector<int> weight_shape(2);
+    vector<int> weight_shape(4);
     weight_shape[0] = m_ofm;
-    weight_shape[1] = m_ifm * m_k * m_k;
+    weight_shape[1] = m_ifm;
+    weight_shape[2] = m_k;
+    weight_shape[3] = m_k;
     this->blobs_[0].reset(new Blob<Dtype>(weight_shape));
 
   }  // parameter initialization
@@ -105,7 +107,7 @@ inline Dtype im2row_get_pixel(const Dtype *im, const int height, const int width
 template <typename Dtype, typename DtypeOut>
 void darknet_im2row_cpu(const Dtype* data_im,
      const int channels, const int height, const int width,
-     const int ksize, const int stride, const int pad, DtypeOut* data_col)
+     const int ksize, const int stride, const int pad, DtypeOut* data_col, Dtype offset)
 {
     int c,h,w;
     const int height_col = (height + 2*pad - ksize) / stride + 1;
@@ -122,8 +124,8 @@ void darknet_im2row_cpu(const Dtype* data_im,
                 const int im_row = h_offset + h * stride;
                 const int im_col = w_offset + w * stride;
                 const int col_index = c + channels_col * (w + h * width_col);
-                data_col[col_index] = (DtypeOut) im2row_get_pixel(data_im, height, width, channels,
-                        im_row, im_col, c_im, pad);
+                data_col[col_index] = (DtypeOut) (im2row_get_pixel(data_im, height, width, channels,
+                        im_row, im_col, c_im, pad) + offset);
             }
         }
     }
@@ -137,6 +139,8 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
   const unsigned int ibits = icp.ibits();
   const bool wsigned = icp.wsigned();
   const bool isigned = icp.isigned();
+  const std::int32_t param_wsigned_offset = icp.wsigned_offset();
+  const std::int32_t param_isigned_offset = icp.isigned_offset();
   TIMER_REPORT(
   auto TIMER_START;
   auto TIMER_END;
@@ -160,7 +164,7 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
       gemmlowp_res.resize(m_outdim*m_outdim*m_ofm);
       // copy weight matrix, adjusting to stay positive if signed
       uint8_t * gemmlowp_weights_ptr = gemmlowp_weights.data();
-      Dtype weight_offs = wsigned ? 128 : 0;
+      Dtype weight_offs = wsigned ? param_wsigned_offset : 0;
       for(int i = 0; i < m_ifm * m_k * m_k * m_ofm; i++) {
         gemmlowp_weights_ptr[i] = (uint8_t)(weight_buf[i] + weight_offs);
       }
@@ -170,18 +174,20 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
   for(int d = 0; d < m_depth; d++) {
     // TODO cater specifically for 1x1 case
     uint8_t * col_buff_u8 = (uint8_t*)(col_buffer_.mutable_cpu_data());
+    Dtype act_offs = isigned ? param_isigned_offset : 0;
     TIMER_START
     if(m_useByteInput) {
       // the bottom blob actually contains uint8_t values -- interpret as such
       const uint8_t * in_buff_u8 = ((uint8_t*)(bottom[0]->cpu_data())) + m_ifm * m_indim * m_indim * d;
       if(m_usebitserial) {
         darknet_im2row_cpu(
-          in_buff_u8, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, col_buff_u8
+          in_buff_u8, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, col_buff_u8, (uint8_t) 0
         );
       } else {
         // directly lower into gemmlowp activation buffer
+        // TODO isigned (act_offs) and uint8 buffer makes no sense -- should use int8_t
         darknet_im2row_cpu(
-          in_buff_u8, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, gemmlowp_acts.data()
+          in_buff_u8, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, gemmlowp_acts.data(), (uint8_t) act_offs
         );
       }
     } else {
@@ -191,12 +197,12 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
       // darknet_im2row_cpu supports casting internally
       if(m_usebitserial) {
         darknet_im2row_cpu(
-          in_buff, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, col_buff_u8
+          in_buff, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, col_buff_u8, (Dtype)0
         );
       } else {
         // directly lower into gemmlowp activation buffer
         darknet_im2row_cpu(
-          in_buff, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, gemmlowp_acts.data()
+          in_buff, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, gemmlowp_acts.data(), act_offs
         );
       }
     }
@@ -221,8 +227,8 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
       const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::ColMajor> rhs(gemmlowp_weights.data(), m_ifm * m_k * m_k, m_ofm);
       gemmlowp::MatrixMap<std::int32_t, gemmlowp::MapOrder::ColMajor> resmap(gemmlowp_res.data(), m_outdim * m_outdim, m_ofm);
       std::tuple<> output_pipeline;
-      int lhs_offset = isigned ? -128 : 0;
-      int rhs_offset = wsigned ? -128 : 0;
+      int lhs_offset = isigned ? -param_isigned_offset : 0;
+      int rhs_offset = wsigned ? -param_wsigned_offset : 0;
       gemmlowp::GemmWithOutputPipeline<std::uint8_t, std::int32_t,
       gemmlowp::DefaultL8R8BitDepthParams>(
         &gemm_context, lhs, rhs,

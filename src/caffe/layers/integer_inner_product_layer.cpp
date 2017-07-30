@@ -86,6 +86,8 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
   const unsigned int ibits = iipp.ibits();
   const bool wsigned = iipp.wsigned();
   const bool isigned = iipp.isigned();
+  const std::int32_t param_wsigned_offset = iipp.wsigned_offset();
+  const std::int32_t param_isigned_offset = iipp.isigned_offset();
   if(!m_weights_ready) {
     const Dtype* weight_buf = this->blobs_[0]->cpu_data();
     if(m_usebitserial) {
@@ -101,7 +103,7 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
       gemmlowp_res.resize(m_depth*m_outputs);
       // copy weight matrix, adjusting to stay positive if signed
       uint8_t * gemmlowp_weights_ptr = gemmlowp_weights.data();
-      Dtype weight_offs = wsigned ? 128 : 0;
+      Dtype weight_offs = wsigned ? param_wsigned_offset : 0;
       for(int i = 0; i < m_outputs*m_inputs; i++) {
         gemmlowp_weights_ptr[i] = (uint8_t)(weight_buf[i] + weight_offs);
       }
@@ -126,6 +128,7 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
       // treat input blob as uint8_t data
       m_gemmctx.rhs.importRegular((uint8_t *) bottom_data);
     } else {
+      // TODO gemmbitserial importRegular should support const offsets
       m_gemmctx.rhs.importRegular(bottom_data);
     }
   } else {
@@ -134,7 +137,7 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
     } else {
       // cast to uint8
       uint8_t * actptr = gemmlowp_acts.data();
-      Dtype act_offs = isigned ? 128 : 0;
+      Dtype act_offs = isigned ? param_isigned_offset : 0;
       for(unsigned int i = 0; i < m_depth*m_inputs; i++) {
         actptr[i] = (std::uint8_t) (bottom_data[i] + act_offs);
       }
@@ -154,8 +157,8 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
     const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::ColMajor> rhs(gemmlowp_acts.data(), m_inputs, m_depth);
     gemmlowp::MatrixMap<std::int32_t, gemmlowp::MapOrder::ColMajor> resmap(gemmlowp_res.data(), m_outputs, m_depth);
     std::tuple<> output_pipeline;
-    int lhs_offset = wsigned ? -128 : 0;
-    int rhs_offset = isigned ? -128 : 0;
+    int lhs_offset = wsigned ? -param_wsigned_offset : 0;
+    int rhs_offset = isigned ? -param_isigned_offset : 0;
     gemmlowp::GemmWithOutputPipeline<std::uint8_t, std::int32_t,
     gemmlowp::DefaultL8R8BitDepthParams>(
       &gemm_context, lhs, rhs,
