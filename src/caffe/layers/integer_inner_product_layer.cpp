@@ -94,6 +94,12 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
         m_outputs, m_inputs, m_depth, wbits, ibits, wsigned, isigned
       );
       m_gemmctx.lhs.importRegular(weight_buf);
+    } else {
+      // set up for gemmlowp
+      gemmlowp_weights.resize(m_outputs*m_inputs);
+      gemmlowp_acts.resize(m_depth*m_inputs);
+      gemmlowp_res.resize(m_depth*m_outputs);
+      // TODO copy weight matrix, adjusting to stay positive if signed
     }
     m_weights_ready = true;
   }
@@ -117,6 +123,17 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
     } else {
       m_gemmctx.rhs.importRegular(bottom_data);
     }
+  } else {
+    if(m_useByteInput) {
+      memcpy(gemmlowp_acts.data(), (uint8_t *) bottom_data, m_depth*m_inputs);
+    } else {
+      // cast to uint8
+      for(unsigned int i = 0; i < m_depth*m_inputs; i++) {
+        // TODO value adjustment here if needed
+        gemmlowp_acts.data()[i] = (std::uint8_t) bottom_data[i];
+      }
+
+    }
   }
   TIMER_END
   TIMER_GET(uscount_quantin)
@@ -125,6 +142,19 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
   TIMER_START;
   if(m_usebitserial) {
     gemmbitserial::gemmBitSerial(m_gemmctx);
+  } else {
+    // use gemmlowp
+    const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::RowMajor> lhs(gemmlowp_weights.data(), m_outputs, m_inputs);
+    const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::ColMajor> rhs(gemmlowp_acts.data(), m_inputs, m_depth);
+    gemmlowp::MatrixMap<std::int32_t, gemmlowp::MapOrder::ColMajor> resmap(gemmlowp_res.data(), m_outputs, m_depth);
+    std::tuple<> output_pipeline;
+    // TODO adjust according to value correctness need
+    int lhs_offset = 0;
+    int rhs_offset = 0;
+    gemmlowp::GemmWithOutputPipeline<std::uint8_t, std::int32_t,
+    gemmlowp::DefaultL8R8BitDepthParams>(
+      &gemm_context, lhs, rhs,
+      &resmap, lhs_offset, rhs_offset, output_pipeline);
   }
   TIMER_END
   TIMER_GET(uscount_mm)
@@ -136,6 +166,13 @@ void IntegerInnerProductLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bo
     for(size_t c = 0; c < m_depth; c++) {
       for(size_t r = 0; r < m_outputs; r++) {
         top_data[c * m_outputs + r] = (Dtype) m_gemmctx.res[c * m_outputs + r];
+      }
+    }
+  } else {
+    std::int32_t * gemmlowpres = gemmlowp_res.data();
+    for(size_t c = 0; c < m_depth; c++) {
+      for(size_t r = 0; r < m_outputs; r++) {
+        top_data[c * m_outputs + r] = (Dtype) gemmlowpres[c * m_outputs + r];
       }
     }
   }

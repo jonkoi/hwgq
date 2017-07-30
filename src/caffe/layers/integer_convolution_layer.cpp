@@ -155,7 +155,11 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
       m_gemmctx.rhs.importRegular(weight_buf);
       m_weights_ready = true;
     } else {
-      // TODO set up weight matrix for gemmlowp
+      // set up for gemmlowp
+      gemmlowp_weights.resize(m_ifm * m_k * m_k * m_ofm);
+      gemmlowp_acts.resize(m_outdim*m_outdim * m_ifm * m_k * m_k);
+      gemmlowp_res.resize(m_outdim*m_outdim*m_ofm);
+      // TODO copy weight matrix, adjusting to stay positive if signed
     }
   }
   for(int d = 0; d < m_depth; d++) {
@@ -174,6 +178,9 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
       TIMER_START
       if(m_usebitserial) {
         m_gemmctx.lhs.importRegular(col_buff_u8, false);
+      } else {
+        // TODO can directly lower into gemmlowp_acts instead
+        memcpy(gemmlowp_acts.data(), col_buff_u8, m_outdim*m_outdim * m_ifm * m_k * m_k);
       }
       TIMER_END
       TIMER_GET(uscount_quantin);
@@ -192,6 +199,12 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
       TIMER_START
       if(m_usebitserial) {
         m_gemmctx.lhs.importRegular(col_buff, false);
+      } else {
+        // cast to uint8 (could also build typeconv into the darknet im2row)
+        for(unsigned int i = 0; i <m_outdim*m_outdim * m_ifm * m_k * m_k; i++) {
+          // TODO value adjustment here if needed
+          gemmlowp_acts.data()[i] = (std::uint8_t) col_buff[i];
+        }
       }
       TIMER_END
       TIMER_GET(uscount_quantin);
@@ -202,7 +215,18 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
     if(m_usebitserial) {
       gemmbitserial::gemmBitSerial(m_gemmctx);
     } else {
-      // TODO use gemmlowp
+      // use gemmlowp
+      const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::RowMajor> lhs(gemmlowp_acts.data(), m_outdim * m_outdim, m_ifm * m_k * m_k);
+      const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::ColMajor> rhs(gemmlowp_weights.data(), m_ifm * m_k * m_k, m_ofm);
+      gemmlowp::MatrixMap<std::int32_t, gemmlowp::MapOrder::ColMajor> resmap(gemmlowp_res.data(), m_outdim * m_outdim, m_ofm);
+      std::tuple<> output_pipeline;
+      // TODO adjust according to value correctness need
+      int lhs_offset = 0;
+      int rhs_offset = 0;
+      gemmlowp::GemmWithOutputPipeline<std::uint8_t, std::int32_t,
+      gemmlowp::DefaultL8R8BitDepthParams>(
+        &gemm_context, lhs, rhs,
+        &resmap, lhs_offset, rhs_offset, output_pipeline);
     }
     TIMER_END
     TIMER_GET(uscount_mm);
@@ -213,6 +237,13 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
       for(size_t c = 0; c < m_ofm; c++) {
         for(size_t r = 0; r < m_outdim * m_outdim; r++) {
           top_data[c * m_outdim * m_outdim + r] = (Dtype) m_gemmctx.res[c * m_outdim * m_outdim + r];
+        }
+      }
+    } else {
+      std::int32_t * gemmlowpres = gemmlowp_res.data();
+      for(size_t c = 0; c < m_ofm; c++) {
+        for(size_t r = 0; r < m_outdim * m_outdim; r++) {
+          top_data[c * m_outdim * m_outdim + r] = (Dtype) gemmlowpres[c * m_outdim * m_outdim + r];
         }
       }
     }

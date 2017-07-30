@@ -7,6 +7,7 @@
 #include "caffe/layer.hpp"
 #include "caffe/proto/caffe.pb.h"
 #include "gemmbitserial.hpp"
+#include "caffe/util/gemmlowp-quantization.hpp"
 
 namespace caffe {
 
@@ -39,6 +40,11 @@ class IntegerInnerProductLayer : public Layer<Dtype> {
 
   bool m_useByteInput;  // treat input blob as bytes instead of floats
   bool m_usebitserial;
+
+  std::vector<std::uint8_t> gemmlowp_weights;
+  std::vector<std::uint8_t> gemmlowp_acts;
+  std::vector<std::int32_t> gemmlowp_res;
+  gemmlowp::GemmContext gemm_context;
 
 };
 
