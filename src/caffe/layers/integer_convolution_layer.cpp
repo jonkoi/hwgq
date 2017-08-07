@@ -153,10 +153,11 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
     const Dtype* weight_buf = this->blobs_[0]->cpu_data();
     if(m_usebitserial) {
       // first usage, set up the bit serial matrix
-      m_gemmctx = gemmbitserial::allocGEMMContext(
-        m_outdim*m_outdim, m_ifm * m_k * m_k, m_ofm, ibits, wbits, isigned, wsigned
+      m_bsconvctx = gemmbitserial::allocConvBitSerialContext(
+        m_ifm, m_ofm, m_indim, m_k, m_stride, m_pad, ibits, wbits, isigned, wsigned
       );
-      m_gemmctx.rhs.importRegular(weight_buf);
+      // import the weight matrix
+      m_bsconvctx.importWeights(weight_buf);
     } else {
       // set up for gemmlowp
       gemmlowp_weights.resize(m_ifm * m_k * m_k * m_ofm);
@@ -180,9 +181,7 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
       // the bottom blob actually contains uint8_t values -- interpret as such
       const uint8_t * in_buff_u8 = ((uint8_t*)(bottom[0]->cpu_data())) + m_ifm * m_indim * m_indim * d;
       if(m_usebitserial) {
-        darknet_im2row_cpu(
-          in_buff_u8, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, col_buff_u8, (uint8_t) 0
-        );
+        m_bsconvctx.importActivations(in_buff_u8);
       } else {
         // directly lower into gemmlowp activation buffer
         // TODO isigned (act_offs) and uint8 buffer makes no sense -- should use int8_t
@@ -196,9 +195,7 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
       Dtype * col_buff = col_buffer_.mutable_cpu_data();
       // darknet_im2row_cpu supports casting internally
       if(m_usebitserial) {
-        darknet_im2row_cpu(
-          in_buff, m_ifm, m_indim, m_indim, m_k, m_stride, m_pad, col_buff_u8, (Dtype)0
-        );
+        m_bsconvctx.importActivations(in_buff);
       } else {
         // directly lower into gemmlowp activation buffer
         darknet_im2row_cpu(
@@ -210,9 +207,6 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
     TIMER_GET(uscount_im2col)
 
     TIMER_START
-    if(m_usebitserial) {
-      m_gemmctx.lhs.importRegular(col_buff_u8, false);
-    }
     TIMER_END
     TIMER_GET(uscount_quantin);
 
@@ -220,7 +214,7 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
     // matrix matrix product
     TIMER_START
     if(m_usebitserial) {
-      gemmbitserial::gemmBitSerial(m_gemmctx);
+      gemmbitserial::gemmBitSerial(m_bsconvctx.gemmctx);
     } else {
       // use gemmlowp
       const gemmlowp::MatrixMap<const std::uint8_t, gemmlowp::MapOrder::RowMajor> lhs(gemmlowp_acts.data(), m_outdim * m_outdim, m_ifm * m_k * m_k);
@@ -242,7 +236,7 @@ void IntegerConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bot
     if(m_usebitserial) {
       for(size_t c = 0; c < m_ofm; c++) {
         for(size_t r = 0; r < m_outdim * m_outdim; r++) {
-          top_data[c * m_outdim * m_outdim + r] = (Dtype) m_gemmctx.res[c * m_outdim * m_outdim + r];
+          top_data[c * m_outdim * m_outdim + r] = (Dtype) m_bsconvctx.gemmctx.res[c * m_outdim * m_outdim + r];
         }
       }
     } else {
