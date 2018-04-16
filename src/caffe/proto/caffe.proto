@@ -306,7 +306,7 @@ message ParamSpec {
 // NOTE
 // Update the next available ID when you add a new LayerParameter field.
 //
-// LayerParameter next available layer-specific ID: 150 (last added: quant_param)
+// LayerParameter next available layer-specific ID: 154 (last added: mlbp_offload_param)
 message LayerParameter {
   optional string name = 1; // the layer name
   optional string type = 2; // the layer type
@@ -406,6 +406,10 @@ message LayerParameter {
   optional BinaryConvolutionParameter binary_convolution_param = 147;
   optional BinaryInnerProductParameter binary_inner_product_param = 148;
   optional QuantParameter quant_param = 149;
+  optional IntegerInnerProductParameter integer_inner_product_param = 150;
+  optional MultiThresholdParameter multi_threshold_param = 151;
+  optional IntegerConvolutionParameter integer_convolution_param = 152;
+  optional MLBPOffloadParameter mlbp_offload_param = 153;
 }
 
 // Message that stores parameters used to apply transformation
@@ -1195,6 +1199,22 @@ message BinaryConvolutionParameter {
   optional bool use_binarization = 2 [default = true];
   optional float pos_val = 3 [default = 1];
   optional float neg_val = 4 [default = -1];
+  // use gemmlowp for forward pass on the CPU
+  optional bool use_gemmlowp = 5 [default = false];
+  // value range used for gemmlowp quantization for inputs
+  // the defaults are based on 2-bit uniform HWGQ activations as input
+  optional float gemmlowp_imin = 6 [default = 0];
+  optional float gemmlowp_imax = 7 [default = 1.614];
+  // value range used for gemmlowp quantization for weights
+  // the defaults are based on 2-bit uniform HWGQ activations as input
+  optional float gemmlowp_wmin = 8 [default = -1];
+  optional float gemmlowp_wmax = 9 [default = 1];
+  // value range used for gemmlowp quantization for results
+  // the defaults are set somewhat ad-hoc here, since the range depends on
+  // the input&weight distribution and ranges
+  optional float gemmlowp_rmin = 10 [default = -10];
+  optional float gemmlowp_rmax = 11 [default = 10];
+
 }
 
 message BinaryInnerProductParameter {
@@ -1202,6 +1222,21 @@ message BinaryInnerProductParameter {
   optional bool use_binarization = 2 [default = true];
   optional float pos_val = 3 [default = 1];
   optional float neg_val = 4 [default = -1];
+  // use gemmlowp for forward pass on the CPU
+  optional bool use_gemmlowp = 5 [default = false];
+  // value range used for gemmlowp quantization for inputs
+  // the defaults are based on 2-bit uniform HWGQ activations as input
+  optional float gemmlowp_imin = 6 [default = 0];
+  optional float gemmlowp_imax = 7 [default = 1.614];
+  // value range used for gemmlowp quantization for weights
+  // the defaults are based on 2-bit uniform HWGQ activations as input
+  optional float gemmlowp_wmin = 8 [default = -1];
+  optional float gemmlowp_wmax = 9 [default = 1];
+  // value range used for gemmlowp quantization for results
+  // the defaults are set somewhat ad-hoc here, since the range depends on
+  // the input&weight distribution and ranges
+  optional float gemmlowp_rmin = 10 [default = -10];
+  optional float gemmlowp_rmax = 11 [default = 10];
 }
 
 message QuantParameter {
@@ -1211,6 +1246,59 @@ message QuantParameter {
   optional float negative_slope = 4 [default = 0];
   repeated float thrs = 5;
   repeated float centers = 6;
+}
+
+message IntegerInnerProductParameter {
+  optional uint32 num_output = 1; // The number of outputs for the layer
+  // The first axis to be lumped into a single inner product computation;
+  // all preceding axes are retained in the output.
+  // May be negative to index from the end (e.g., -1 for the last axis).
+  optional int32 axis = 2 [default = 1];
+  optional uint32 wbits = 3 [default = 2];
+  optional uint32 ibits = 4 [default = 2];
+  optional bool wsigned = 5 [default = true];
+  optional bool isigned = 6 [default = false];
+  optional string engine = 7 [default = "bitserial"];
+  optional bool use_byte_input = 8 [default = false];
+  optional int32 wsigned_offset = 9 [default = 128];
+  optional int32 isigned_offset = 10 [default = 128];
+}
+
+message MultiThresholdParameter {
+  optional uint32 num_thres = 1;
+  optional uint32 num_channels = 2;
+  optional int32 channel_axis = 3 [default = 1];
+  optional bool use_byte_output = 4 [default = false];
+}
+
+message IntegerConvolutionParameter {
+  optional uint32 num_output = 1; // The number of outputs for the layer
+  optional uint32 pad = 2; // The padding size; defaults to 0
+  optional uint32 kernel_size = 3; // The kernel size
+  optional uint32 stride = 4; // The stride; defaults to 1
+  optional uint32 wbits = 5 [default = 2];
+  optional uint32 ibits = 6 [default = 2];
+  optional bool wsigned = 7 [default = true];
+  optional bool isigned = 8 [default = false];
+  optional string engine = 9 [default = "bitserial"];
+  optional int32 axis = 10 [default = 1];
+  optional bool use_byte_input = 11 [default = false];
+  optional int32 wsigned_offset = 12 [default = 128];
+  optional int32 isigned_offset = 13 [default = 128];
+}
+
+message MLBPOffloadParameter {
+  repeated uint32 input_shape = 1;  // 2D input shape: (chans, dim)
+  repeated uint32 output_shape = 2; // 2D output shape: (chans, dim)
+  required string bitfile_load_cmd = 3;      // command to execute to load bitfile
+  // convert input from chan-major to dim-major
+  optional bool interleave_input = 4 [default = false];
+  // convert output from dim-major to chan-major
+  optional bool deinterleave_output = 5 [default = false];
+  // treat input blob as 8-bit values (faster interleave, less copy)
+  optional bool use_8bit_input = 6 [default = false];
+  // treat output blob as 8-bit values (faster deinterleave, less copy)
+  optional bool use_8bit_output = 7 [default = false];
 }
 
 message SPPParameter {

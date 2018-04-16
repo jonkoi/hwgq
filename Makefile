@@ -28,6 +28,10 @@ endif
 SRC_DIRS := $(shell find * -type d -exec bash -c "find {} -maxdepth 1 \
 	\( -name '*.cpp' -o -name '*.proto' \) | grep -q ." \; -print)
 
+# MLBP
+USE_MBLP ?= 0
+
+
 # The target shared library name
 LIBRARY_NAME := $(PROJECT)
 LIB_BUILD_DIR := $(BUILD_DIR)/lib
@@ -179,6 +183,13 @@ ifneq ($(CPU_ONLY), 1)
 endif
 
 LIBRARIES += glog gflags protobuf boost_system boost_filesystem m hdf5_hl hdf5
+
+# MLBP
+ifeq ($(USE_MLBP), 1)
+	INCLUDE_DIRS += $(MLBP_DRIVER_DIR)
+	LIBRARY_DIRS += $(MLBP_DRIVER_DIR)
+	LIBRARIES += $(MLBP_ADDITIONAL_LIBS)
+endif
 
 # handle IO dependencies
 USE_LEVELDB ?= 1
@@ -342,6 +353,11 @@ ifeq ($(ALLOW_LMDB_NOLOCK), 1)
 endif
 endif
 
+ifeq ($(USE_MLBP), 1)
+	CXX_SRCS += $(MLBP_DRIVER_DIR)/$(MLBP_PLATFORM).cpp
+	COMMON_FLAGS += -DMLBP -mfpu=neon
+endif
+
 # CPU-only configuration
 ifeq ($(CPU_ONLY), 1)
 	OBJS := $(PROTO_OBJS) $(CXX_OBJS)
@@ -405,11 +421,11 @@ CXXFLAGS += -MMD -MP
 
 # Complete build flags.
 COMMON_FLAGS += $(foreach includedir,$(INCLUDE_DIRS),-I$(includedir))
-CXXFLAGS += -pthread -fPIC $(COMMON_FLAGS) $(WARNINGS)
+CXXFLAGS += -march=native -std=c++11 -fopenmp -pthread -fPIC $(COMMON_FLAGS) $(WARNINGS)
 NVCCFLAGS += -ccbin=$(CXX) -Xcompiler -fPIC $(COMMON_FLAGS)
 # mex may invoke an older gcc that is too liberal with -Wuninitalized
 MATLAB_CXXFLAGS := $(CXXFLAGS) -Wno-uninitialized
-LINKFLAGS += -pthread -fPIC $(COMMON_FLAGS) $(WARNINGS)
+LINKFLAGS += -pthread -std=c++11 -fPIC $(COMMON_FLAGS) $(WARNINGS)
 
 USE_PKG_CONFIG ?= 0
 ifeq ($(USE_PKG_CONFIG), 1)
